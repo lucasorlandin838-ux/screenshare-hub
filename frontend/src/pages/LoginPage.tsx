@@ -14,6 +14,8 @@ import {
   MessageSquare,
 } from 'lucide-react';
 import { useTheme } from '../context/ThemeContext';
+import InstallAppModal from '../components/InstallAppModal';
+import { Download } from 'lucide-react';
 
 // Avatar emoji presets for registration
 const AVATAR_EMOJIS = [
@@ -72,6 +74,7 @@ export default function LoginPage({ onLogin }: Props) {
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   const [rememberMe, setRememberMe] = useState(true);
+  const [installModalOpen, setInstallModalOpen] = useState(false);
 
   const cleanUsername = username.toLowerCase().trim().replace(/[^a-z0-9_]/g, '');
 
@@ -206,6 +209,21 @@ export default function LoginPage({ onLogin }: Props) {
       className="min-h-screen flex font-sans overflow-hidden relative"
       style={{ backgroundColor: theme.bgMain, color: theme.textPrimary }}
     >
+      {/* Top Install App pill */}
+      <div className="absolute top-4 right-4 z-20">
+        <button
+          onClick={() => setInstallModalOpen(true)}
+          className="px-3.5 py-1.5 rounded-full border text-xs font-bold text-zinc-300 hover:text-white transition flex items-center gap-1.5 shadow-lg backdrop-blur-md hover:scale-105"
+          style={{ backgroundColor: theme.bgCard + 'cc', borderColor: theme.borderColor }}
+        >
+          <Download className="w-3.5 h-3.5 text-emerald-400" />
+          <span>Baixar / Instalar App</span>
+        </button>
+      </div>
+
+      {installModalOpen && (
+        <InstallAppModal isOpen={installModalOpen} onClose={() => setInstallModalOpen(false)} />
+      )}
       {/* Animated background glow blobs */}
       <div
         className="absolute -top-32 -left-32 w-96 h-96 rounded-full opacity-20 blur-3xl animate-pulse pointer-events-none"

@@ -1,0 +1,46 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="100%" height="100%">
+  <defs>
+    <linearGradient id="bgGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#18181b" />
+      <stop offset="50%" stop-color="#09090b" />
+      <stop offset="100%" stop-color="#040405" />
+    </linearGradient>
+    <linearGradient id="accentGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#6366f1" />
+      <stop offset="50%" stop-color="#4f46e5" />
+      <stop offset="100%" stop-color="#10b981" />
+    </linearGradient>
+    <filter id="glow" x="-20%" y="-20%" width="140%" height="140%">
+      <feGaussianBlur stdDeviation="16" result="blur" />
+      <feComposite in="SourceGraphic" in2="blur" operator="over" />
+    </filter>
+  </defs>
+
+  <!-- Background rounded squircle -->
+  <rect x="16" y="16" width="480" height="480" rx="108" fill="url(#bgGrad)" stroke="#3f3f46" stroke-width="6" />
+
+  <!-- Inner glowing circle / signal wave -->
+  <circle cx="256" cy="240" r="160" fill="none" stroke="#6366f1" stroke-width="4" opacity="0.25" />
+  <circle cx="256" cy="240" r="190" fill="none" stroke="#10b981" stroke-width="3" opacity="0.15" />
+
+  <!-- Monitor frame -->
+  <g filter="url(#glow)">
+    <rect x="96" y="104" width="320" height="216" rx="28" fill="#1e1e24" stroke="url(#accentGrad)" stroke-width="12" />
+    <!-- Screen glass -->
+    <rect x="114" y="122" width="284" height="180" rx="16" fill="#0f0f13" />
+  </g>
+
+  <!-- Screen content: Sharing rays / Play symbol & wave -->
+  <path d="M 230 165 L 295 212 L 230 259 Z" fill="url(#accentGrad)" />
+  
+  <!-- Transmission signal arcs inside screen -->
+  <path d="M 315 178 A 45 45 0 0 1 315 246" fill="none" stroke="#10b981" stroke-width="7" stroke-linecap="round" />
+  <path d="M 335 160 A 70 70 0 0 1 335 264" fill="none" stroke="#6366f1" stroke-width="7" stroke-linecap="round" />
+
+  <!-- Monitor stand -->
+  <path d="M 232 320 L 232 370 L 280 370 L 280 320 Z" fill="#27272a" />
+  <rect x="186" y="370" width="140" height="18" rx="9" fill="url(#accentGrad)" />
+
+  <!-- Online indicator live dot -->
+  <circle cx="390" cy="134" r="8" fill="#10b981" filter="url(#glow)" />
+</svg>

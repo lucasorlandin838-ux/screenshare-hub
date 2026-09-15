@@ -30,6 +30,8 @@ import LoginPage from './LoginPage';
 import { Friend, TextChannel, VoiceChannel, ActiveView, CustomGroup } from '../types';
 import GroupChatView from '../components/GroupChatView';
 import CreateGroupModal from '../components/CreateGroupModal';
+import InstallAppModal from '../components/InstallAppModal';
+import { Download } from 'lucide-react';
 
 const TEXT_CHANNELS: TextChannel[] = [
   { id: 'geral', name: 'geral', desc: 'Canal principal para conversar com a galera' },
@@ -94,6 +96,7 @@ export default function Home() {
     }
   });
   const [createGroupOpen, setCreateGroupOpen] = useState(false);
+  const [installModalOpen, setInstallModalOpen] = useState(false);
 
   const {
     actualPeerId,
@@ -983,6 +986,14 @@ export default function Home() {
           friends={friends}
           currentUsername={username}
           onCreateGroup={handleCreateGroup}
+        />
+      )}
+
+            {/* MODAL DE INSTALAR APP */}
+      {installModalOpen && (
+        <InstallAppModal
+          isOpen={installModalOpen}
+          onClose={() => setInstallModalOpen(false)}
         />
       )}
 
