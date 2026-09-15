@@ -116,7 +116,7 @@ export function usePeerCall(
 
   useEffect(() => {
     try {
-      localStorage.setItem('hub_chat_messages', JSON.stringify(messages.slice(-200)));
+      localStorage.setItem('hub_chat_messages', JSON.stringify(messages.slice(-300)));
     } catch {}
   }, [messages]);
 
@@ -143,14 +143,13 @@ export function usePeerCall(
 
       peer.on('open', (id) => {
         if (!isSubscribed) return;
-        console.log('[PeerJS] Conectado e registrado:', id);
+        console.log('[PeerJS] Registrado com sucesso:', id);
         setActualPeerId(id);
         setConnectionStatus('connected');
         setCallError(null);
       });
 
       peer.on('disconnected', () => {
-        console.log('[PeerJS] Desconectado, reconectando...');
         peer.reconnect();
       });
 
@@ -187,7 +186,7 @@ export function usePeerCall(
         }
 
         if (err.type === 'peer-unavailable') {
-          setCallError('Usuário offline ou não encontrado. Peça para ele abrir o site!');
+          setCallError('O usuário chamado não está online com o site aberto.');
           cleanupCall();
         } else {
           setConnectionStatus('error');
@@ -209,7 +208,6 @@ export function usePeerCall(
 
   const setupDataConnection = useCallback((conn: DataConnection) => {
     conn.on('open', () => {
-      console.log('[PeerJS] Conectado ao canal de dados:', conn.peer);
       conn.send({
         type: 'profile-sync',
         sender: username,
@@ -220,12 +218,14 @@ export function usePeerCall(
     });
 
     conn.on('data', (data: any) => {
-      if (data?.type === 'chat') {
+      if (data?.type === 'chat' || data?.type === 'dm') {
         setMessages((prev) => [
           ...prev,
           {
             id: String(Date.now()) + Math.random(),
             sender: data.sender,
+            recipient: data.recipient,
+            isPrivate: !!data.isPrivate,
             avatar: data.avatar,
             nameFont: data.nameFont,
             nameColor: data.nameColor,
@@ -339,7 +339,6 @@ export function usePeerCall(
 
         call.on('close', () => cleanupCall());
         call.on('error', (e) => {
-          console.warn('[PeerJS] Erro chamada:', e);
           setCallError('O usuário "' + targetUsername + '" não atendeu ou está offline.');
           cleanupCall();
         });
@@ -382,11 +381,9 @@ export function usePeerCall(
       });
 
       currentCallRef.current.on('close', () => cleanupCall());
-      currentCallRef.current.on('error', (e) => {
-        cleanupCall();
-      });
+      currentCallRef.current.on('error', () => cleanupCall());
     } catch (err) {
-      setCallError('Erro ao acessar microfone/câmera ao atender.');
+      setCallError('Erro ao atender chamada.');
     }
   }, [getMedia, setupDataConnection, handleRemoteStream]);
 
@@ -429,7 +426,6 @@ export function usePeerCall(
     setLocalStream(null);
     setRemoteStream(null);
     setRemoteIsSharingScreen(false);
-    setCurrentRoom(null);
 
     setCallState({
       active: false,
@@ -445,18 +441,21 @@ export function usePeerCall(
     });
   }, []);
 
+  // Entrar na Sala de Voz SEM tentar discar para ID inexistente
   const joinRoom = useCallback(
-    async (roomName: string) => {
-      if (!peerRef.current || !username) return;
+    (roomName: string) => {
       const cleanRoom = roomName.toLowerCase().trim().replace(/[^a-z0-9_]/g, '');
       if (!cleanRoom) return;
-
       setCurrentRoom(cleanRoom);
       setCallError(null);
-      callUser(cleanRoom);
     },
-    [username, callUser]
+    []
   );
+
+  const leaveRoom = useCallback(() => {
+    setCurrentRoom(null);
+    cleanupCall();
+  }, [cleanupCall]);
 
   const toggleScreenShare = useCallback(async () => {
     const call = currentCallRef.current;
@@ -541,7 +540,7 @@ export function usePeerCall(
     }
   }, []);
 
-  // Enviar mensagem com suporte a arquivos anexados, fonte e cor do nome
+  // Enviar mensagem de canal público
   const sendMessage = useCallback(
     (content: string, channelId?: string, file?: ChatAttachment) => {
       if (!content.trim() && !file) return;
@@ -579,6 +578,71 @@ export function usePeerCall(
     [username, avatar, nameFont, nameColor]
   );
 
+  // Enviar Mensagem Direta (DM) Privada para um Amigo Específico
+  const sendDirectMessage = useCallback(
+    (recipient: string, content: string, file?: ChatAttachment) => {
+      if (!content.trim() && !file) return;
+      if (!username) return;
+
+      const timeStr = new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+      const cleanRecipient = recipient.toLowerCase().trim().replace(/[^a-z0-9_]/g, '');
+
+      const msg: ChatMessage = {
+        id: String(Date.now()) + Math.random(),
+        sender: username,
+        recipient: cleanRecipient,
+        isPrivate: true,
+        avatar: avatar,
+        nameFont: nameFont,
+        nameColor: nameColor,
+        content: content.trim(),
+        file: file,
+        time: timeStr,
+      };
+
+      setMessages((prev) => [...prev, msg]);
+
+      // Se já tivermos conexão com o destinatário, enviamos diretamente
+      const targetId = 'hub_' + cleanRecipient;
+      if (dataConnRef.current && dataConnRef.current.open && dataConnRef.current.peer === targetId) {
+        dataConnRef.current.send({
+          type: 'dm',
+          sender: username,
+          recipient: cleanRecipient,
+          isPrivate: true,
+          avatar: avatar,
+          nameFont: nameFont,
+          nameColor: nameColor,
+          content: content.trim(),
+          file: file,
+          time: timeStr,
+        });
+      } else if (peerRef.current) {
+        // Tenta abrir conexão de dados sob demanda com o amigo para entregar a DM
+        try {
+          const conn = peerRef.current.connect(targetId, { reliable: true });
+          conn.on('open', () => {
+            conn.send({
+              type: 'dm',
+              sender: username,
+              recipient: cleanRecipient,
+              isPrivate: true,
+              avatar: avatar,
+              nameFont: nameFont,
+              nameColor: nameColor,
+              content: content.trim(),
+              file: file,
+              time: timeStr,
+            });
+          });
+        } catch (e) {
+          console.log('[DM] Erro ao enviar DM para par offline:', e);
+        }
+      }
+    },
+    [username, avatar, nameFont, nameColor]
+  );
+
   return {
     actualPeerId,
     connectionStatus,
@@ -594,9 +658,11 @@ export function usePeerCall(
     rejectCall,
     endCall,
     joinRoom,
+    leaveRoom,
     toggleScreenShare,
     toggleMic,
     toggleCamera,
     sendMessage,
+    sendDirectMessage,
   };
 }

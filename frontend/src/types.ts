@@ -26,6 +26,8 @@ export interface UserProfile {
 export interface ChatMessage {
   id: string;
   sender: string;
+  recipient?: string;
+  isPrivate?: boolean;
   avatar?: string;
   nameFont?: string;
   nameColor?: string;
@@ -37,6 +39,12 @@ export interface ChatMessage {
 }
 
 export interface TextChannel {
+  id: string;
+  name: string;
+  desc: string;
+}
+
+export interface VoiceChannel {
   id: string;
   name: string;
   desc: string;
@@ -63,18 +71,15 @@ export interface Friend {
   lastSeen?: string;
 }
 
-export interface GroupRoom {
-  id: string;
-  name: string;
-  code: string;
-}
+export type ActiveView =
+  | { type: 'channel'; id: string }
+  | { type: 'dm'; friendUsername: string }
+  | { type: 'voice'; roomId: string };
 
 export interface User {
   id: string;
   username: string;
   avatar?: string;
-  nameFont?: string;
-  nameColor?: string;
   email?: string;
   status?: string;
 }
@@ -100,6 +105,6 @@ export interface Message {
   senderUsername: string;
   senderAvatar?: string;
   content: string;
-  file?: ChatAttachment;
   createdAt: string;
 }
+
