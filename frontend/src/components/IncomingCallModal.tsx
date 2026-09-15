@@ -1,22 +1,51 @@
 import React from 'react';
 import { Phone, PhoneOff, Monitor } from 'lucide-react';
+import { useTheme } from '../context/ThemeContext';
 
 interface Props {
   fromUsername: string;
+  fromAvatar?: string;
   onAccept: () => void;
   onReject: () => void;
 }
 
-export default function IncomingCallModal({ fromUsername, onAccept, onReject }: Props) {
+export default function IncomingCallModal({ fromUsername, fromAvatar, onAccept, onReject }: Props) {
+  const { theme, accent } = useTheme();
+
   return (
     <div className="fixed inset-0 bg-black/85 backdrop-blur-md z-50 flex items-center justify-center p-4">
-      <div className="bg-zinc-900 border border-zinc-700/80 rounded-2xl p-6 sm:p-8 max-w-xs sm:max-w-sm w-full text-center shadow-2xl">
-        <div className="w-16 h-16 sm:w-20 sm:h-20 mx-auto rounded-full bg-zinc-800 border-2 border-zinc-600 flex items-center justify-center mb-4 sm:mb-5 animate-pulse">
-          <Monitor className="w-8 h-8 sm:w-10 sm:h-10 text-zinc-300" />
+      <div
+        className="rounded-3xl p-6 sm:p-8 max-w-xs sm:max-w-sm w-full text-center shadow-2xl border animate-in fade-in zoom-in-95 duration-200"
+        style={{
+          backgroundColor: theme.bgCard,
+          borderColor: theme.borderColor,
+        }}
+      >
+        <div className="relative w-20 h-20 sm:w-24 sm:h-24 mx-auto mb-4">
+          <div
+            className="w-full h-full rounded-full overflow-hidden border-2 flex items-center justify-center font-black text-2xl shadow-xl"
+            style={{
+              borderColor: accent.hex,
+              backgroundColor: theme.bgSidebar,
+            }}
+          >
+            {fromAvatar ? (
+              <img src={fromAvatar} alt={fromUsername} className="w-full h-full object-cover" />
+            ) : (
+              <span className="text-white uppercase text-2xl">{fromUsername[0]}</span>
+            )}
+          </div>
+          <span
+            className="absolute bottom-0 right-1 w-6 h-6 rounded-full bg-emerald-500 border-2 border-black flex items-center justify-center animate-ping"
+          />
         </div>
 
-        <h3 className="text-lg sm:text-xl font-bold text-white mb-1">{fromUsername}</h3>
-        <p className="text-zinc-400 text-xs sm:text-sm mb-6">está te chamando para chamada com tela / vídeo...</p>
+        <h3 className="text-lg sm:text-xl font-black text-white mb-1 tracking-tight">
+          {fromUsername}
+        </h3>
+        <p className="text-zinc-400 text-xs sm:text-sm mb-6">
+          está te chamando para chamada com tela & vídeo...
+        </p>
 
         <div className="flex justify-center gap-6 sm:gap-8">
           <button

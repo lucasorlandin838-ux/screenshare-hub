@@ -16,11 +16,14 @@ import {
   Volume2,
 } from 'lucide-react';
 import { ChatMessage } from '../types';
+import { useTheme } from '../context/ThemeContext';
 
 interface Props {
   localStream: MediaStream | null;
   remoteStream: MediaStream | null;
   peerUsername: string;
+  peerAvatar?: string;
+  userAvatar?: string;
   isScreenSharing: boolean;
   remoteIsSharingScreen?: boolean;
   micMuted: boolean;
@@ -37,6 +40,8 @@ export default function VideoCall({
   localStream,
   remoteStream,
   peerUsername,
+  peerAvatar,
+  userAvatar,
   isScreenSharing,
   remoteIsSharingScreen,
   micMuted,
@@ -48,6 +53,7 @@ export default function VideoCall({
   onEndCall,
   onSendMessage,
 }: Props) {
+  const { theme, accent } = useTheme();
   const containerRef = useRef<HTMLDivElement>(null);
   const localVideoRef = useRef<HTMLVideoElement>(null);
   const remoteVideoRef = useRef<HTMLVideoElement>(null);
@@ -67,12 +73,15 @@ export default function VideoCall({
   useEffect(() => {
     if (remoteVideoRef.current && remoteStream) {
       remoteVideoRef.current.srcObject = remoteStream;
-      remoteVideoRef.current.play().then(() => {
-        setNeedsAudioUnlock(false);
-      }).catch((err) => {
-        console.log('[VideoCall] Autoplay aguardando toque do usuário:', err);
-        setNeedsAudioUnlock(true);
-      });
+      remoteVideoRef.current
+        .play()
+        .then(() => {
+          setNeedsAudioUnlock(false);
+        })
+        .catch((err) => {
+          console.log('[VideoCall] Autoplay aguardando toque do usuário:', err);
+          setNeedsAudioUnlock(true);
+        });
     }
   }, [remoteStream, remoteIsSharingScreen]);
 
@@ -82,9 +91,12 @@ export default function VideoCall({
 
   const unlockAudio = () => {
     if (remoteVideoRef.current) {
-      remoteVideoRef.current.play().then(() => {
-        setNeedsAudioUnlock(false);
-      }).catch(() => {});
+      remoteVideoRef.current
+        .play()
+        .then(() => {
+          setNeedsAudioUnlock(false);
+        })
+        .catch(() => {});
     }
   };
 
@@ -108,36 +120,75 @@ export default function VideoCall({
   return (
     <div
       ref={containerRef}
-      className="flex-1 flex flex-col h-full bg-black relative overflow-hidden"
+      className="flex-1 flex flex-col h-full relative overflow-hidden font-sans"
+      style={{ backgroundColor: theme.bgMain }}
     >
       {/* Aviso caso o celular precise de um toque para liberar o áudio */}
       {needsAudioUnlock && (
         <div
           onClick={unlockAudio}
-          className="bg-zinc-800 text-zinc-200 text-xs py-2 px-4 flex items-center justify-center gap-2 cursor-pointer z-30 border-b border-zinc-700 active:bg-zinc-700"
+          className="text-xs py-2 px-4 flex items-center justify-center gap-2 cursor-pointer z-30 border-b active:opacity-80 transition"
+          style={{
+            backgroundColor: theme.bgCard,
+            borderColor: theme.borderColor,
+            color: theme.textPrimary,
+          }}
         >
           <Volume2 className="w-4 h-4 text-emerald-400 animate-bounce" />
           <span>Toque aqui para ativar o áudio da chamada no celular</span>
         </div>
       )}
 
-      {/* Top bar info (Tema Preto e Cinza Escuro) */}
-      <div className="h-14 bg-zinc-950/95 border-b border-zinc-800 flex items-center justify-between px-3 sm:px-6 z-20 backdrop-blur">
-        <div className="flex items-center gap-2 sm:gap-3 overflow-hidden">
-          <div className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-ping flex-shrink-0" />
-          <span className="text-zinc-200 font-semibold text-xs sm:text-sm truncate">
-            Chamada: <span className="text-white font-bold">{peerUsername}</span>
-          </span>
+      {/* Top bar info */}
+      <div
+        className="h-14 border-b flex items-center justify-between px-3 sm:px-6 z-20 backdrop-blur"
+        style={{
+          backgroundColor: theme.bgSidebar,
+          borderColor: theme.borderColor,
+        }}
+      >
+        <div className="flex items-center gap-2.5 sm:gap-3 overflow-hidden">
+          <div
+            className="w-8 h-8 rounded-full overflow-hidden border flex items-center justify-center font-bold text-xs flex-shrink-0"
+            style={{ borderColor: accent.hex, backgroundColor: theme.bgCard }}
+          >
+            {peerAvatar ? (
+              <img src={peerAvatar} alt={peerUsername} className="w-full h-full object-cover" />
+            ) : (
+              <span className="text-white uppercase">{peerUsername[0]}</span>
+            )}
+          </div>
+
+          <div className="flex items-center gap-2 truncate">
+            <span className="font-bold text-xs sm:text-sm text-white truncate">
+              {peerUsername}
+            </span>
+            <span className="w-2 h-2 rounded-full bg-emerald-500 flex-shrink-0" />
+          </div>
 
           {isScreenSharing && (
-            <span className="bg-zinc-800 text-amber-400 text-[10px] sm:text-xs px-2.5 py-0.5 rounded-full border border-zinc-700 flex items-center gap-1 font-medium flex-shrink-0">
-              <Monitor className="w-3 h-3 text-amber-400" /> <span className="hidden sm:inline">Você está</span> transmitindo
+            <span
+              className="text-[10px] sm:text-xs px-2.5 py-0.5 rounded-full border flex items-center gap-1 font-bold flex-shrink-0"
+              style={{
+                backgroundColor: theme.bgCard,
+                borderColor: accent.hex,
+                color: accent.hex,
+              }}
+            >
+              <Monitor className="w-3 h-3" /> <span className="hidden sm:inline">Você está</span> transmitindo
             </span>
           )}
 
           {remoteIsSharingScreen && (
-            <span className="bg-zinc-800 text-emerald-400 text-[10px] sm:text-xs px-2.5 py-0.5 rounded-full border border-zinc-700 flex items-center gap-1 font-medium flex-shrink-0">
-              <Monitor className="w-3 h-3 text-emerald-400" /> <span className="hidden sm:inline">Tela de</span> {peerUsername}
+            <span
+              className="text-[10px] sm:text-xs px-2.5 py-0.5 rounded-full border flex items-center gap-1 font-bold flex-shrink-0"
+              style={{
+                backgroundColor: theme.bgCard,
+                borderColor: '#10b981',
+                color: '#34d399',
+              }}
+            >
+              <Monitor className="w-3 h-3" /> <span className="hidden sm:inline">Tela de</span> {peerUsername}
             </span>
           )}
         </div>
@@ -145,7 +196,7 @@ export default function VideoCall({
         <div className="flex items-center gap-1.5 sm:gap-2">
           <button
             onClick={toggleFullscreen}
-            className="p-2 rounded-lg text-zinc-400 hover:text-white hover:bg-zinc-800 transition"
+            className="p-2 rounded-lg text-zinc-400 hover:text-white hover:bg-white/10 transition"
             title="Tela cheia"
           >
             {isFullscreen ? <Minimize2 className="w-4 h-4" /> : <Maximize2 className="w-4 h-4" />}
@@ -154,15 +205,16 @@ export default function VideoCall({
           <button
             onClick={() => setChatOpen(!chatOpen)}
             className={`px-2.5 sm:px-3 py-1.5 rounded-lg text-xs sm:text-sm flex items-center gap-1.5 transition ${
-              chatOpen
-                ? 'bg-zinc-800 text-white font-bold'
-                : 'bg-zinc-900 text-zinc-300 hover:bg-zinc-800 border border-zinc-800'
+              chatOpen ? 'text-white font-bold shadow' : 'text-zinc-300 hover:bg-white/10'
             }`}
+            style={{
+              backgroundColor: chatOpen ? accent.hex : theme.bgCard,
+            }}
           >
             <MessageSquare className="w-4 h-4" />
             <span className="hidden sm:inline">Chat</span>
             {messages.length > 0 && (
-              <span className="bg-zinc-700 text-white text-[10px] px-1.5 py-0.2 rounded-full font-bold">
+              <span className="bg-white/20 text-white text-[10px] px-1.5 py-0.2 rounded-full font-bold">
                 {messages.length}
               </span>
             )}
@@ -183,16 +235,35 @@ export default function VideoCall({
             />
           ) : (
             <div className="text-center p-6">
-              <div className="w-16 h-16 sm:w-24 sm:h-24 rounded-full bg-zinc-900 border border-zinc-800 mx-auto flex items-center justify-center mb-3 text-zinc-500 animate-pulse">
-                <Users className="w-8 h-8 sm:w-12 sm:h-12 text-zinc-400" />
+              <div
+                className="w-20 h-20 sm:w-28 sm:h-28 rounded-full border-2 mx-auto flex items-center justify-center mb-3 overflow-hidden shadow-xl"
+                style={{ borderColor: accent.hex, backgroundColor: theme.bgCard }}
+              >
+                {peerAvatar ? (
+                  <img src={peerAvatar} alt={peerUsername} className="w-full h-full object-cover" />
+                ) : (
+                  <span className="text-3xl sm:text-4xl font-black text-white uppercase">
+                    {peerUsername[0]}
+                  </span>
+                )}
               </div>
-              <p className="text-zinc-200 font-medium text-base sm:text-lg">Conectando chamada...</p>
-              <p className="text-zinc-500 text-xs sm:text-sm mt-1">Aguardando vídeo de {peerUsername}</p>
+              <p className="text-zinc-200 font-bold text-base sm:text-lg">
+                Conectado com {peerUsername}
+              </p>
+              <p className="text-zinc-500 text-xs sm:text-sm mt-1">
+                Aguardando transmissão de vídeo/tela...
+              </p>
             </div>
           )}
 
           {/* Local Video Thumbnail */}
-          <div className="absolute bottom-4 right-4 sm:bottom-6 sm:right-6 w-28 sm:w-56 aspect-video bg-zinc-900 border-2 border-zinc-700 rounded-lg sm:rounded-xl overflow-hidden shadow-2xl group transition-all z-10">
+          <div
+            className="absolute bottom-4 right-4 sm:bottom-6 sm:right-6 w-28 sm:w-52 aspect-video border-2 rounded-xl overflow-hidden shadow-2xl group transition-all z-10"
+            style={{
+              backgroundColor: theme.bgCard,
+              borderColor: accent.hex,
+            }}
+          >
             <video
               ref={localVideoRef}
               autoPlay
@@ -201,8 +272,12 @@ export default function VideoCall({
               className={`w-full h-full object-cover ${camMuted && !isScreenSharing ? 'hidden' : ''}`}
             />
             {camMuted && !isScreenSharing && (
-              <div className="w-full h-full flex flex-col items-center justify-center text-zinc-500 text-[10px] sm:text-xs gap-0.5 sm:gap-1">
-                <VideoOff className="w-4 h-4 sm:w-6 sm:h-6 text-zinc-600" />
+              <div className="w-full h-full flex flex-col items-center justify-center text-zinc-400 text-[10px] sm:text-xs gap-1">
+                {userAvatar ? (
+                  <img src={userAvatar} alt="Você" className="w-10 h-10 rounded-full object-cover mb-0.5" />
+                ) : (
+                  <VideoOff className="w-5 h-5 text-zinc-500" />
+                )}
                 <span>Câmera off</span>
               </div>
             )}
@@ -212,17 +287,26 @@ export default function VideoCall({
           </div>
         </div>
 
-        {/* Chat Drawer: Slide-over on Desktop, Bottom-sheet on Mobile */}
+        {/* Chat Drawer */}
         {chatOpen && (
-          <div className="fixed sm:relative inset-x-0 bottom-0 sm:inset-auto h-[60vh] sm:h-full w-full sm:w-80 bg-zinc-950/98 sm:bg-zinc-950 border-t sm:border-t-0 sm:border-l border-zinc-800 flex flex-col z-40 rounded-t-2xl sm:rounded-none shadow-2xl backdrop-blur-xl">
-            <div className="p-3 border-b border-zinc-800 text-white font-medium text-sm flex items-center justify-between">
+          <div
+            className="fixed sm:relative inset-x-0 bottom-0 sm:inset-auto h-[60vh] sm:h-full w-full sm:w-80 border-t sm:border-t-0 sm:border-l flex flex-col z-40 rounded-t-2xl sm:rounded-none shadow-2xl backdrop-blur-xl"
+            style={{
+              backgroundColor: theme.bgSidebar,
+              borderColor: theme.borderColor,
+            }}
+          >
+            <div
+              className="p-3 border-b text-white font-bold text-sm flex items-center justify-between"
+              style={{ borderColor: theme.borderColor }}
+            >
               <div className="flex items-center gap-2">
-                <MessageSquare className="w-4 h-4 text-zinc-400" />
+                <MessageSquare className="w-4 h-4" style={{ color: accent.hex }} />
                 <span>Chat da Chamada</span>
               </div>
               <button
                 onClick={() => setChatOpen(false)}
-                className="p-1 rounded-lg text-zinc-400 hover:text-white hover:bg-zinc-800 transition"
+                className="p-1 rounded-lg text-zinc-400 hover:text-white hover:bg-white/10 transition"
               >
                 <X className="w-4 h-4" />
               </button>
@@ -237,10 +321,22 @@ export default function VideoCall({
                 messages.map((m) => (
                   <div key={m.id} className="text-xs sm:text-sm">
                     <div className="flex items-center gap-1.5 mb-0.5">
-                      <span className="font-bold text-zinc-300 text-xs">{m.sender}</span>
-                      <span className="text-[9px] sm:text-[10px] text-zinc-600">{m.time}</span>
+                      {m.avatar && (
+                        <img src={m.avatar} alt={m.sender} className="w-4 h-4 rounded-full object-cover" />
+                      )}
+                      <span className="font-bold text-xs" style={{ color: accent.hex }}>
+                        {m.sender}
+                      </span>
+                      <span className="text-[9px] text-zinc-500">{m.time}</span>
                     </div>
-                    <div className="bg-zinc-900 border border-zinc-800/80 text-zinc-200 p-2.5 rounded-lg break-words text-xs">
+                    <div
+                      className="p-2.5 rounded-lg break-words text-xs border"
+                      style={{
+                        backgroundColor: theme.bgInput,
+                        borderColor: theme.borderColor,
+                        color: theme.textPrimary,
+                      }}
+                    >
                       {m.content}
                     </div>
                   </div>
@@ -249,17 +345,26 @@ export default function VideoCall({
               <div ref={messagesEndRef} />
             </div>
 
-            <form onSubmit={handleSend} className="p-2.5 sm:p-3 border-t border-zinc-800 flex gap-2">
+            <form
+              onSubmit={handleSend}
+              className="p-2.5 sm:p-3 border-t flex gap-2"
+              style={{ borderColor: theme.borderColor }}
+            >
               <input
                 type="text"
                 placeholder="Mensagem..."
                 value={inputMsg}
                 onChange={(e) => setInputMsg(e.target.value)}
-                className="flex-1 bg-zinc-900 border border-zinc-800 rounded-lg px-3 py-2 text-xs text-white placeholder-zinc-500 focus:outline-none focus:border-zinc-600"
+                className="flex-1 rounded-lg px-3 py-2 text-xs text-white placeholder-zinc-500 focus:outline-none border"
+                style={{
+                  backgroundColor: theme.bgInput,
+                  borderColor: theme.borderColor,
+                }}
               />
               <button
                 type="submit"
-                className="bg-zinc-800 hover:bg-zinc-700 text-white px-3 py-2 rounded-lg text-xs font-semibold flex items-center justify-center border border-zinc-700"
+                className="text-white px-3 py-2 rounded-lg text-xs font-semibold flex items-center justify-center transition shadow"
+                style={{ backgroundColor: accent.hex }}
               >
                 <Send className="w-3.5 h-3.5" />
               </button>
@@ -268,16 +373,26 @@ export default function VideoCall({
         )}
       </div>
 
-      {/* Bottom Control Bar (Tema Cinza Escuro e Preto) */}
-      <div className="h-18 sm:h-20 bg-zinc-950 border-t border-zinc-800/80 flex items-center justify-center gap-2.5 sm:gap-4 px-3 sm:px-6 z-20 pb-safe">
+      {/* Bottom Control Bar */}
+      <div
+        className="h-18 sm:h-20 border-t flex items-center justify-center gap-2.5 sm:gap-4 px-3 sm:px-6 z-20 pb-safe"
+        style={{
+          backgroundColor: theme.bgSidebar,
+          borderColor: theme.borderColor,
+        }}
+      >
         {/* Mic toggle */}
         <button
           onClick={onToggleMic}
           className={`p-3 sm:p-3.5 rounded-full transition transform active:scale-95 border ${
             micMuted
               ? 'bg-red-950/80 border-red-800 text-red-400'
-              : 'bg-zinc-900 border-zinc-700/80 hover:bg-zinc-800 text-zinc-200'
+              : 'hover:bg-white/10 text-zinc-200'
           }`}
+          style={{
+            backgroundColor: micMuted ? undefined : theme.bgCard,
+            borderColor: micMuted ? undefined : theme.borderColor,
+          }}
           title={micMuted ? 'Ativar microfone' : 'Desativar microfone'}
         >
           {micMuted ? <MicOff className="w-4 h-4 sm:w-5 sm:h-5" /> : <Mic className="w-4 h-4 sm:w-5 sm:h-5" />}
@@ -289,8 +404,12 @@ export default function VideoCall({
           className={`p-3 sm:p-3.5 rounded-full transition transform active:scale-95 border ${
             camMuted
               ? 'bg-red-950/80 border-red-800 text-red-400'
-              : 'bg-zinc-900 border-zinc-700/80 hover:bg-zinc-800 text-zinc-200'
+              : 'hover:bg-white/10 text-zinc-200'
           }`}
+          style={{
+            backgroundColor: camMuted ? undefined : theme.bgCard,
+            borderColor: camMuted ? undefined : theme.borderColor,
+          }}
           title={camMuted ? 'Ligar câmera' : 'Desligar câmera'}
         >
           {camMuted ? <VideoOff className="w-4 h-4 sm:w-5 sm:h-5" /> : <Video className="w-4 h-4 sm:w-5 sm:h-5" />}
@@ -299,21 +418,21 @@ export default function VideoCall({
         {/* Screen Share Button */}
         <button
           onClick={onToggleScreen}
-          className={`px-4 sm:px-6 py-3 sm:py-3.5 rounded-full flex items-center gap-2 font-bold text-xs sm:text-sm transition transform active:scale-95 shadow-xl border ${
-            isScreenSharing
-              ? 'bg-amber-950/80 border-amber-600 text-amber-300 ring-2 ring-amber-500/30'
-              : 'bg-zinc-800 hover:bg-zinc-700 border-zinc-600 text-white'
-          }`}
+          className="px-4 sm:px-6 py-3 sm:py-3.5 rounded-full flex items-center gap-2 font-bold text-xs sm:text-sm transition transform active:scale-95 shadow-xl border text-white"
+          style={{
+            backgroundColor: isScreenSharing ? accent.hex : theme.bgCard,
+            borderColor: isScreenSharing ? '#ffffff' : theme.borderColor,
+          }}
         >
           {isScreenSharing ? (
             <>
-              <MonitorOff className="w-4 h-4 sm:w-5 sm:h-5 text-amber-400" />
+              <MonitorOff className="w-4 h-4 sm:w-5 sm:h-5" />
               <span className="hidden sm:inline">Parar Compartilhamento</span>
               <span className="sm:hidden">Parar</span>
             </>
           ) : (
             <>
-              <Monitor className="w-4 h-4 sm:w-5 sm:h-5 text-zinc-300" />
+              <Monitor className="w-4 h-4 sm:w-5 sm:h-5" />
               <span className="hidden sm:inline">Compartilhar Tela</span>
               <span className="sm:hidden">Tela</span>
             </>

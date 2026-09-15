@@ -6,7 +6,6 @@ export function sanitizePeerId(name: string): string {
   return 'hub_' + name.toLowerCase().trim().replace(/[^a-z0-9_]/g, '');
 }
 
-// Cria faixa de vídeo virtual silenciosa caso o usuário não tenha webcam
 function createBlankVideoTrack(width = 640, height = 480): MediaStreamTrack {
   const canvas = document.createElement('canvas');
   canvas.width = width;
@@ -24,7 +23,6 @@ function createBlankVideoTrack(width = 640, height = 480): MediaStreamTrack {
   return stream.getVideoTracks()[0];
 }
 
-// Toca som de chamada usando a Web Audio API nativa (sem depender de arquivo externo)
 function playRingBeep() {
   try {
     const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
@@ -50,7 +48,6 @@ function playRingBeep() {
   }
 }
 
-// Configuração STUN e TURN para atravessar 4G/5G de celular e Wi-Fi doméstico
 const ICE_SERVERS: RTCIceServer[] = [
   { urls: 'stun:stun.l.google.com:19302' },
   { urls: 'stun:stun1.l.google.com:19302' },
@@ -73,7 +70,7 @@ const ICE_SERVERS: RTCIceServer[] = [
   },
 ];
 
-export function usePeerCall(username: string | null) {
+export function usePeerCall(username: string | null, avatar?: string) {
   const [actualPeerId, setActualPeerId] = useState<string>('');
   const [connectionStatus, setConnectionStatus] = useState<'connecting' | 'connected' | 'error'>('connecting');
   const [callError, setCallError] = useState<string | null>(null);
@@ -83,6 +80,7 @@ export function usePeerCall(username: string | null) {
     active: false,
     isCaller: false,
     peerUsername: '',
+    peerAvatar: undefined,
     incoming: false,
     isScreenSharing: false,
     micMuted: false,
@@ -92,7 +90,15 @@ export function usePeerCall(username: string | null) {
   const [remoteIsSharingScreen, setRemoteIsSharingScreen] = useState(false);
   const [localStream, setLocalStream] = useState<MediaStream | null>(null);
   const [remoteStream, setRemoteStream] = useState<MediaStream | null>(null);
-  const [messages, setMessages] = useState<ChatMessage[]>([]);
+
+  // Inicializa mensagens persistidas no navegador
+  const [messages, setMessages] = useState<ChatMessage[]>(() => {
+    try {
+      return JSON.parse(localStorage.getItem('hub_chat_messages') || '[]');
+    } catch {
+      return [];
+    }
+  });
 
   const peerRef = useRef<Peer | null>(null);
   const currentCallRef = useRef<MediaConnection | null>(null);
@@ -102,7 +108,14 @@ export function usePeerCall(username: string | null) {
   const isScreenSharingRef = useRef(false);
   const ringIntervalRef = useRef<any>(null);
 
-  // Inicializa o PeerJS com tratamento inteligente de ID ocupado
+  // Salva histórico de mensagens localmente
+  useEffect(() => {
+    try {
+      localStorage.setItem('hub_chat_messages', JSON.stringify(messages.slice(-200)));
+    } catch {}
+  }, [messages]);
+
+  // Inicializa o PeerJS com tratamento de ID ocupado
   useEffect(() => {
     if (!username) return;
 
@@ -110,7 +123,7 @@ export function usePeerCall(username: string | null) {
     setConnectionStatus('connecting');
 
     const cleanBase = username.toLowerCase().trim().replace(/[^a-z0-9_]/g, '');
-    let candidateId = 'hub_' + cleanBase;
+    const candidateId = 'hub_' + cleanBase;
 
     function initPeer(idToTry: string) {
       console.log('[PeerJS] Tentando registrar ID:', idToTry);
@@ -150,13 +163,12 @@ export function usePeerCall(username: string | null) {
           peerUsername: callerName,
         }));
 
-        // Tocar som de chamada a cada 2 segundos
         playRingBeep();
         if (ringIntervalRef.current) clearInterval(ringIntervalRef.current);
         ringIntervalRef.current = setInterval(playRingBeep, 2200);
       });
 
-      // Receber conexão de dados (chat / sinais)
+      // Receber canal de dados (chat / sinais)
       peer.on('connection', (conn) => {
         dataConnRef.current = conn;
         setupDataConnection(conn);
@@ -165,8 +177,6 @@ export function usePeerCall(username: string | null) {
       peer.on('error', (err) => {
         console.warn('[PeerJS] Erro do servidor:', err.type, err.message);
         if (err.type === 'unavailable-id') {
-          // O ID já está registrado (por ex. aba anterior ainda aberta no servidor)
-          // Tenta com sufixo aleatório
           peer.destroy();
           const suffix = Math.floor(100 + Math.random() * 900);
           const nextId = 'hub_' + cleanBase + '_' + suffix;
@@ -199,6 +209,12 @@ export function usePeerCall(username: string | null) {
   const setupDataConnection = useCallback((conn: DataConnection) => {
     conn.on('open', () => {
       console.log('[PeerJS] Canal de dados conectado com:', conn.peer);
+      // Envia nosso avatar e perfil assim que conecta
+      conn.send({
+        type: 'profile-sync',
+        sender: username,
+        avatar: avatar,
+      });
     });
 
     conn.on('data', (data: any) => {
@@ -208,10 +224,19 @@ export function usePeerCall(username: string | null) {
           {
             id: String(Date.now()) + Math.random(),
             sender: data.sender,
+            avatar: data.avatar,
+            channelId: data.channelId,
             content: data.content,
-            time: new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }),
+            time: data.time || new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }),
           },
         ]);
+      } else if (data?.type === 'profile-sync') {
+        if (data.avatar) {
+          setCallState((prev) => ({
+            ...prev,
+            peerAvatar: data.avatar,
+          }));
+        }
       } else if (data?.type === 'call-end') {
         cleanupCall();
       } else if (data?.type === 'screen-share') {
@@ -222,9 +247,8 @@ export function usePeerCall(username: string | null) {
     conn.on('close', () => {
       console.log('[PeerJS] Canal de dados desconectado');
     });
-  }, []);
+  }, [username, avatar]);
 
-  // Obter microfone e câmera com fallback seguro
   const getMedia = useCallback(async () => {
     let stream: MediaStream;
     try {
@@ -241,14 +265,14 @@ export function usePeerCall(username: string | null) {
       });
       camTrackRef.current = stream.getVideoTracks()[0];
     } catch (e) {
-      console.warn('[Mídia] Câmera indisponível ou bloqueada. Criando faixa de áudio e vídeo virtual:', e);
+      console.warn('[Mídia] Câmera indisponível ou bloqueada. Criando faixa virtual:', e);
       try {
         stream = await navigator.mediaDevices.getUserMedia({
           audio: { echoCancellation: true, noiseSuppression: true },
           video: false,
         });
       } catch (err) {
-        console.warn('[Mídia] Microfone também não permitido. Criando stream mudo:', err);
+        console.warn('[Mídia] Microfone não permitido:', err);
         stream = new MediaStream();
       }
       const blankTrack = createBlankVideoTrack();
@@ -262,7 +286,6 @@ export function usePeerCall(username: string | null) {
   }, []);
 
   const handleRemoteStream = useCallback((remote: MediaStream) => {
-    console.log('[PeerJS] Stream remoto conectado! Tracks:', remote.getTracks().map(t => `${t.kind}:${t.readyState}`));
     setRemoteStream(remote);
 
     remote.onaddtrack = () => {
@@ -276,9 +299,9 @@ export function usePeerCall(username: string | null) {
     });
   }, []);
 
-  // Ligar diretamente para um amigo por nome
+  // Iniciar chamada direta
   const callUser = useCallback(
-    async (targetUsername: string) => {
+    async (targetUsername: string, targetAvatar?: string) => {
       if (!peerRef.current || !username) return;
       setCallError(null);
 
@@ -286,7 +309,7 @@ export function usePeerCall(username: string | null) {
       if (!cleanTarget) return;
 
       const targetId = 'hub_' + cleanTarget;
-      console.log('[PeerJS] Iniciando chamada para:', targetId);
+      console.log('[PeerJS] Ligando para:', targetId);
 
       try {
         const stream = await getMedia();
@@ -302,6 +325,7 @@ export function usePeerCall(username: string | null) {
           active: true,
           isCaller: true,
           peerUsername: targetUsername,
+          peerAvatar: targetAvatar,
           incoming: false,
           isScreenSharing: false,
           micMuted: false,
@@ -315,18 +339,17 @@ export function usePeerCall(username: string | null) {
         call.on('close', () => cleanupCall());
         call.on('error', (e) => {
           console.warn('[PeerJS] Erro ao ligar para o par:', e);
-          setCallError('O usuário "' + targetUsername + '" não atendeu ou não está online com o site aberto.');
+          setCallError('O usuário "' + targetUsername + '" não atendeu ou está offline.');
           cleanupCall();
         });
       } catch (err) {
         console.error('[PeerJS] Erro ao iniciar chamada:', err);
-        setCallError('Erro ao acessar microfone/câmera. Verifique as permissões no navegador!');
+        setCallError('Erro ao acessar microfone/câmera. Verifique as permissões!');
       }
     },
     [username, getMedia, setupDataConnection, handleRemoteStream]
   );
 
-  // Atender chamada
   const answerCall = useCallback(async () => {
     if (ringIntervalRef.current) {
       clearInterval(ringIntervalRef.current);
@@ -370,7 +393,6 @@ export function usePeerCall(username: string | null) {
     }
   }, [getMedia, setupDataConnection, handleRemoteStream]);
 
-  // Rejeitar chamada
   const rejectCall = useCallback(() => {
     if (ringIntervalRef.current) {
       clearInterval(ringIntervalRef.current);
@@ -382,7 +404,6 @@ export function usePeerCall(username: string | null) {
     cleanupCall();
   }, []);
 
-  // Encerrar chamada
   const endCall = useCallback(() => {
     if (ringIntervalRef.current) {
       clearInterval(ringIntervalRef.current);
@@ -417,6 +438,7 @@ export function usePeerCall(username: string | null) {
       active: false,
       isCaller: false,
       peerUsername: '',
+      peerAvatar: undefined,
       incoming: false,
       isScreenSharing: false,
       micMuted: false,
@@ -424,8 +446,6 @@ export function usePeerCall(username: string | null) {
     });
   }, []);
 
-  // Entrar em uma Sala / Canal de Voz e Tela (estilo Discord)
-  // Conecta imediatamente os amigos que entrarem na mesma sala!
   const joinRoom = useCallback(
     async (roomName: string) => {
       if (!peerRef.current || !username) return;
@@ -435,14 +455,11 @@ export function usePeerCall(username: string | null) {
       console.log('[Room] Entrando na sala:', cleanRoom);
       setCurrentRoom(cleanRoom);
       setCallError(null);
-
-      // Na sala, chamamos o par da sala ou anunciamos
       callUser(cleanRoom);
     },
     [username, callUser]
   );
 
-  // Alternar Compartilhamento de Tela
   const toggleScreenShare = useCallback(async () => {
     const call = currentCallRef.current;
     if (!call || !localStreamRef.current) return;
@@ -508,7 +525,6 @@ export function usePeerCall(username: string | null) {
     }
   }, []);
 
-  // Alternar microfone
   const toggleMic = useCallback(() => {
     if (!localStreamRef.current) return;
     const audioTrack = localStreamRef.current.getAudioTracks()[0];
@@ -518,7 +534,6 @@ export function usePeerCall(username: string | null) {
     }
   }, []);
 
-  // Alternar câmera
   const toggleCamera = useCallback(() => {
     if (!localStreamRef.current) return;
     const videoTrack = localStreamRef.current.getVideoTracks()[0];
@@ -528,15 +543,18 @@ export function usePeerCall(username: string | null) {
     }
   }, []);
 
-  // Enviar mensagem de chat
+  // Enviar mensagem (suporta texto geral e canais específicos)
   const sendMessage = useCallback(
-    (content: string) => {
+    (content: string, channelId?: string) => {
       if (!content.trim() || !username) return;
+      const timeStr = new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
       const msg: ChatMessage = {
-        id: String(Date.now()),
+        id: String(Date.now()) + Math.random(),
         sender: username,
+        avatar: avatar,
+        channelId: channelId,
         content: content.trim(),
-        time: new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }),
+        time: timeStr,
       };
 
       setMessages((prev) => [...prev, msg]);
@@ -545,11 +563,14 @@ export function usePeerCall(username: string | null) {
         dataConnRef.current.send({
           type: 'chat',
           sender: username,
+          avatar: avatar,
+          channelId: channelId,
           content: content.trim(),
+          time: timeStr,
         });
       }
     },
-    [username]
+    [username, avatar]
   );
 
   return {
