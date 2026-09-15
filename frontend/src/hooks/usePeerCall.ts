@@ -3,21 +3,20 @@ import Peer, { MediaConnection, DataConnection } from 'peerjs';
 import { ChatMessage, CallState } from '../types';
 
 export function sanitizePeerId(username: string): string {
-  return 'hub_' + username.toLowerCase().replace(/[^a-z0-9_]/g, '');
+  return 'hub_' + username.toLowerCase().trim().replace(/[^a-z0-9_]/g, '');
 }
 
-// Cria uma faixa de vídeo virtual (canvas) se o usuário não tiver webcam
-// Isso garante que o WebRTC sempre negocie um canal de vídeo bidirecional
+// Cria faixa de vídeo virtual se não tiver webcam (garante negociação WebRTC em qualquer aparelho)
 function createBlankVideoTrack(width = 640, height = 480): MediaStreamTrack {
   const canvas = document.createElement('canvas');
   canvas.width = width;
   canvas.height = height;
   const ctx = canvas.getContext('2d');
   if (ctx) {
-    ctx.fillStyle = '#0f172a';
+    ctx.fillStyle = '#09090b';
     ctx.fillRect(0, 0, width, height);
     ctx.font = '20px sans-serif';
-    ctx.fillStyle = '#64748b';
+    ctx.fillStyle = '#71717a';
     ctx.textAlign = 'center';
     ctx.fillText('Câmera Desativada', width / 2, height / 2);
   }
@@ -25,9 +24,33 @@ function createBlankVideoTrack(width = 640, height = 480): MediaStreamTrack {
   return stream.getVideoTracks()[0];
 }
 
+// Configuração completa de STUN e TURN para funcionar em redes 4G/5G de celular
+const ICE_SERVERS: RTCIceServer[] = [
+  { urls: 'stun:stun.l.google.com:19302' },
+  { urls: 'stun:stun1.l.google.com:19302' },
+  { urls: 'stun:stun2.l.google.com:19302' },
+  { urls: 'stun:stun.relay.metered.ca:80' },
+  {
+    urls: 'turn:standard.relay.metered.ca:80',
+    username: 'openrelayproject',
+    credential: 'openrelayproject',
+  },
+  {
+    urls: 'turn:standard.relay.metered.ca:443',
+    username: 'openrelayproject',
+    credential: 'openrelayproject',
+  },
+  {
+    urls: 'turn:standard.relay.metered.ca:443?transport=tcp',
+    username: 'openrelayproject',
+    credential: 'openrelayproject',
+  },
+];
+
 export function usePeerCall(username: string | null) {
   const [peerId, setPeerId] = useState<string>('');
   const [isReady, setIsReady] = useState(false);
+  const [callError, setCallError] = useState<string | null>(null);
   const [callState, setCallState] = useState<CallState>({
     active: false,
     isCaller: false,
@@ -50,7 +73,7 @@ export function usePeerCall(username: string | null) {
   const camTrackRef = useRef<MediaStreamTrack | null>(null);
   const isScreenSharingRef = useRef(false);
 
-  // Inicializar PeerJS
+  // Inicializar PeerJS com auto-reconexão
   useEffect(() => {
     if (!username) return;
 
@@ -60,12 +83,8 @@ export function usePeerCall(username: string | null) {
       port: 443,
       secure: true,
       config: {
-        iceServers: [
-          { urls: 'stun:stun.l.google.com:19302' },
-          { urls: 'stun:stun1.l.google.com:19302' },
-          { urls: 'stun:stun2.l.google.com:19302' },
-          { urls: 'stun:stun3.l.google.com:19302' },
-        ],
+        iceServers: ICE_SERVERS,
+        iceCandidatePoolSize: 10,
       },
     });
 
@@ -73,6 +92,13 @@ export function usePeerCall(username: string | null) {
       console.log('[PeerJS] Conectado com ID:', id);
       setPeerId(id);
       setIsReady(true);
+      setCallError(null);
+    });
+
+    // Auto-reconectar se o celular bloquear a tela ou trocar de rede
+    peer.on('disconnected', () => {
+      console.log('[PeerJS] Desconectado da rede, tentando reconectar...');
+      peer.reconnect();
     });
 
     // Receber chamada de vídeo/áudio
@@ -97,6 +123,10 @@ export function usePeerCall(username: string | null) {
 
     peer.on('error', (err) => {
       console.warn('[PeerJS] Erro:', err.type, err.message);
+      if (err.type === 'peer-unavailable') {
+        setCallError('Usuário não encontrado ou offline. Peça para seu amigo abrir o site primeiro!');
+        cleanupCall();
+      }
     });
 
     peerRef.current = peer;
@@ -126,7 +156,6 @@ export function usePeerCall(username: string | null) {
       } else if (data?.type === 'call-end') {
         cleanupCall();
       } else if (data?.type === 'screen-share') {
-        console.log('[PeerJS] Remoto alterou estado de compartilhamento:', data.isSharing);
         setRemoteIsSharingScreen(!!data.isSharing);
       }
     });
@@ -136,25 +165,35 @@ export function usePeerCall(username: string | null) {
     });
   }, []);
 
-  // Obter mídia local garantindo SEMPRE áudio E vídeo
+  // Obter mídia local compatível com celular e desktop
   const getMedia = useCallback(async () => {
     let stream: MediaStream;
     try {
-      // Tenta obter webcam e microfone
+      // No celular ou desktop, tenta pegar microfone e câmera
       stream = await navigator.mediaDevices.getUserMedia({
-        video: { width: { ideal: 1280 }, height: { ideal: 720 } },
-        audio: true,
+        video: {
+          width: { ideal: 1280, max: 1920 },
+          height: { ideal: 720, max: 1080 },
+          facingMode: 'user',
+        },
+        audio: {
+          echoCancellation: true,
+          noiseSuppression: true,
+        },
       });
       camTrackRef.current = stream.getVideoTracks()[0];
     } catch (e) {
-      console.warn('Webcam não disponível ou bloqueada. Criando faixa de vídeo virtual:', e);
+      console.warn('[Mídia] Câmera não permitida ou inexistente. Pegando áudio:', e);
       try {
-        stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
+        stream = await navigator.mediaDevices.getUserMedia({
+          audio: { echoCancellation: true, noiseSuppression: true },
+          video: false,
+        });
       } catch (err) {
-        console.warn('Microfone não disponível, criando stream vazio:', err);
+        console.warn('[Mídia] Microfone também não permitido. Criando stream base:', err);
         stream = new MediaStream();
       }
-      // Adiciona faixa de vídeo virtual para garantir negociação de vídeo
+      // Adiciona faixa de vídeo virtual para garantir negociação do canal de vídeo
       const blankTrack = createBlankVideoTrack();
       stream.addTrack(blankTrack);
       camTrackRef.current = blankTrack;
@@ -165,19 +204,17 @@ export function usePeerCall(username: string | null) {
     return stream;
   }, []);
 
-  // Anexar stream remoto e escutar eventos de tracks
+  // Tratar stream remoto
   const handleRemoteStream = useCallback((remote: MediaStream) => {
-    console.log('[PeerJS] Stream remoto recebido com tracks:', remote.getTracks().map(t => t.kind));
+    console.log('[PeerJS] Stream remoto recebido. Tracks:', remote.getTracks().map(t => `${t.kind}:${t.readyState}`));
     setRemoteStream(remote);
 
     remote.onaddtrack = () => {
-      console.log('[PeerJS] Nova track remota adicionada');
       setRemoteStream(new MediaStream(remote.getTracks()));
     };
 
     remote.getVideoTracks().forEach((track) => {
       track.onunmute = () => {
-        console.log('[PeerJS] Track de vídeo remota ativa (onunmute)');
         setRemoteStream(new MediaStream(remote.getTracks()));
       };
     });
@@ -187,12 +224,13 @@ export function usePeerCall(username: string | null) {
   const callUser = useCallback(
     async (targetUsername: string) => {
       if (!peerRef.current || !username) return;
+      setCallError(null);
       const targetId = sanitizePeerId(targetUsername);
 
       const stream = await getMedia();
 
       // Conexão de dados
-      const conn = peerRef.current.connect(targetId);
+      const conn = peerRef.current.connect(targetId, { reliable: true });
       dataConnRef.current = conn;
       setupDataConnection(conn);
 
@@ -218,6 +256,7 @@ export function usePeerCall(username: string | null) {
       call.on('close', () => cleanupCall());
       call.on('error', (e) => {
         console.warn('[PeerJS] Erro na chamada:', e);
+        setCallError('Não foi possível conectar ao seu amigo. Verifique se ele está com o site aberto!');
         cleanupCall();
       });
     },
@@ -227,11 +266,12 @@ export function usePeerCall(username: string | null) {
   // Atender chamada
   const answerCall = useCallback(async () => {
     if (!currentCallRef.current || !peerRef.current) return;
+    setCallError(null);
     const stream = await getMedia();
 
     if (!dataConnRef.current) {
       const targetId = currentCallRef.current.peer;
-      const conn = peerRef.current.connect(targetId);
+      const conn = peerRef.current.connect(targetId, { reliable: true });
       dataConnRef.current = conn;
       setupDataConnection(conn);
     }
@@ -299,20 +339,12 @@ export function usePeerCall(username: string | null) {
   // Alternar Compartilhamento de Tela
   const toggleScreenShare = useCallback(async () => {
     const call = currentCallRef.current;
-    if (!call || !localStreamRef.current) {
-      console.warn('[ScreenShare] Chamada ou stream local não encontrado');
-      return;
-    }
+    if (!call || !localStreamRef.current) return;
 
     const pc = call.peerConnection;
-    if (!pc) {
-      console.warn('[ScreenShare] PeerConnection não disponível');
-      return;
-    }
+    if (!pc) return;
 
     if (isScreenSharingRef.current) {
-      // Parar compartilhamento e voltar para câmera / faixa virtual
-      console.log('[ScreenShare] Parando compartilhamento de tela');
       const fallbackTrack = camTrackRef.current || createBlankVideoTrack();
 
       const videoSender = pc.getSenders().find((s) => s.track?.kind === 'video' || s.track === null);
@@ -330,8 +362,6 @@ export function usePeerCall(username: string | null) {
 
       dataConnRef.current?.send({ type: 'screen-share', isSharing: false });
     } else {
-      // Iniciar compartilhamento de tela
-      console.log('[ScreenShare] Solicitando getDisplayMedia...');
       try {
         const screenStream = await navigator.mediaDevices.getDisplayMedia({
           video: true,
@@ -339,31 +369,24 @@ export function usePeerCall(username: string | null) {
         });
 
         const screenVideoTrack = screenStream.getVideoTracks()[0];
-        console.log('[ScreenShare] Tela obtida:', screenVideoTrack.label);
 
-        // Encontra o sender de vídeo no WebRTC
         let videoSender = pc.getSenders().find((s) => s.track?.kind === 'video');
         if (!videoSender) {
           videoSender = pc.getSenders().find((s) => s.track?.kind !== 'audio');
         }
 
         if (videoSender) {
-          console.log('[ScreenShare] Substituindo track no RTCRtpSender...');
           await videoSender.replaceTrack(screenVideoTrack);
         } else {
-          console.log('[ScreenShare] Adicionando track ao RTCPeerConnection...');
           pc.addTrack(screenVideoTrack, screenStream);
         }
 
-        // Quando o usuário encerra pelo botão nativo do navegador
         screenVideoTrack.onended = () => {
-          console.log('[ScreenShare] Faixa de tela finalizada pelo navegador');
           if (isScreenSharingRef.current) {
             toggleScreenShare();
           }
         };
 
-        // Atualiza o stream local para mostrar a tela
         const audioTracks = localStreamRef.current.getAudioTracks();
         const newStream = new MediaStream([...audioTracks, screenVideoTrack]);
         localStreamRef.current = newStream;
@@ -426,6 +449,7 @@ export function usePeerCall(username: string | null) {
   return {
     peerId,
     isReady,
+    callError,
     callState,
     remoteIsSharingScreen,
     localStream,
