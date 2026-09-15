@@ -14,16 +14,25 @@ import { setupSocket } from './socket';
 
 const app = express();
 const httpServer = createServer(app);
-const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:5173';
+
+// CORS permissivo para aceitar qualquer domínio do frontend (Vercel, Render ou localhost)
+const corsOptions: cors.CorsOptions = {
+  origin: true,
+  credentials: true,
+};
 
 const io = new Server(httpServer, {
-  cors: { origin: [FRONTEND_URL, 'http://localhost:5173'], methods: ['GET', 'POST'], credentials: true }
+  cors: {
+    origin: true,
+    methods: ['GET', 'POST'],
+    credentials: true,
+  },
 });
 
-app.use(cors({ origin: [FRONTEND_URL, 'http://localhost:5173'], credentials: true }));
+app.use(cors(corsOptions));
 app.use(express.json());
 
-app.get('/health', (_req, res) => res.json({ status: 'ok' }));
+app.get('/health', (_req, res) => res.json({ status: 'ok', timestamp: new Date().toISOString() }));
 app.use('/auth', authRouter);
 app.use('/friends', friendsRouter);
 app.use('/groups', groupsRouter);
@@ -33,5 +42,5 @@ setupSocket(io);
 
 const PORT = parseInt(process.env.PORT || '3001', 10);
 initDb().then(() => {
-  httpServer.listen(PORT, () => console.log('ScreenShare Hub backend rodando na porta ' + PORT));
+  httpServer.listen(PORT, '0.0.0.0', () => console.log('ScreenShare Hub backend rodando na porta ' + PORT));
 }).catch((err) => { console.error('DB init failed:', err); process.exit(1); });
