@@ -1,0 +1,13 @@
+﻿services:
+  - type: web
+    name: screenshare-hub-backend
+    env: node
+    buildCommand: npm install && npm run build
+    startCommand: npm start
+    envVars:
+      - key: JWT_SECRET
+        generateValue: true
+      - key: FRONTEND_URL
+        value: https://screenshare-hub.vercel.app
+      - key: NODE_ENV
+        value: production

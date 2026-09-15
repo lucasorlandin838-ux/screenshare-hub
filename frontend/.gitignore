@@ -1,0 +1,19 @@
+# Node
+node_modules/
+dist/
+.env
+
+# SQLite local
+data/
+*.db
+*.db-shm
+*.db-wal
+
+# Logs
+npm-debug.log*
+*.log
+
+# OS
+.DS_Store
+Thumbs.db
+dist/
