@@ -14,6 +14,7 @@ import {
   X,
   Send,
   Volume2,
+  Tv,
 } from 'lucide-react';
 import { ChatMessage } from '../types';
 import { useTheme } from '../context/ThemeContext';
@@ -55,6 +56,7 @@ export default function VideoCall({
 }: Props) {
   const { theme, accent } = useTheme();
   const containerRef = useRef<HTMLDivElement>(null);
+  const remoteContainerRef = useRef<HTMLDivElement>(null);
   const localVideoRef = useRef<HTMLVideoElement>(null);
   const remoteVideoRef = useRef<HTMLVideoElement>(null);
   const [chatOpen, setChatOpen] = useState(false);
@@ -89,6 +91,18 @@ export default function VideoCall({
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
 
+  useEffect(() => {
+    const handleFullscreenChange = () => {
+      setIsFullscreen(!!document.fullscreenElement);
+    };
+    document.addEventListener('fullscreenchange', handleFullscreenChange);
+    document.addEventListener('webkitfullscreenchange', handleFullscreenChange);
+    return () => {
+      document.removeEventListener('fullscreenchange', handleFullscreenChange);
+      document.removeEventListener('webkitfullscreenchange', handleFullscreenChange);
+    };
+  }, []);
+
   const unlockAudio = () => {
     if (remoteVideoRef.current) {
       remoteVideoRef.current
@@ -107,12 +121,27 @@ export default function VideoCall({
     setInputMsg('');
   };
 
-  const toggleFullscreen = () => {
+  // Alterna Tela Cheia da Live / Transmissão
+  const toggleLiveFullscreen = () => {
+    const targetElement = remoteContainerRef.current || containerRef.current;
+    if (!targetElement) return;
+
     if (!document.fullscreenElement) {
-      containerRef.current?.requestFullscreen().catch(() => {});
+      if (targetElement.requestFullscreen) {
+        targetElement.requestFullscreen().catch(() => {});
+      } else if ((targetElement as any).webkitRequestFullscreen) {
+        (targetElement as any).webkitRequestFullscreen();
+      } else if ((remoteVideoRef.current as any)?.webkitEnterFullscreen) {
+        // Fallback para iOS Safari
+        (remoteVideoRef.current as any).webkitEnterFullscreen();
+      }
       setIsFullscreen(true);
     } else {
-      document.exitFullscreen().catch(() => {});
+      if (document.exitFullscreen) {
+        document.exitFullscreen().catch(() => {});
+      } else if ((document as any).webkitExitFullscreen) {
+        (document as any).webkitExitFullscreen();
+      }
       setIsFullscreen(false);
     }
   };
@@ -181,25 +210,34 @@ export default function VideoCall({
 
           {remoteIsSharingScreen && (
             <span
-              className="text-[10px] sm:text-xs px-2.5 py-0.5 rounded-full border flex items-center gap-1 font-bold flex-shrink-0"
-              style={{
-                backgroundColor: theme.bgCard,
-                borderColor: '#10b981',
-                color: '#34d399',
-              }}
+              className="text-[10px] sm:text-xs px-2.5 py-0.5 rounded-full border flex items-center gap-1.5 font-bold flex-shrink-0 bg-emerald-950/80 border-emerald-500 text-emerald-300 shadow"
             >
-              <Monitor className="w-3 h-3" /> <span className="hidden sm:inline">Tela de</span> {peerUsername}
+              <Tv className="w-3 h-3 text-emerald-400 animate-pulse" />
+              <span>AO VIVO: Tela de {peerUsername}</span>
             </span>
           )}
         </div>
 
         <div className="flex items-center gap-1.5 sm:gap-2">
+          {/* Botão de Tela Cheia no Topo */}
           <button
-            onClick={toggleFullscreen}
-            className="p-2 rounded-lg text-zinc-400 hover:text-white hover:bg-white/10 transition"
-            title="Tela cheia"
+            onClick={toggleLiveFullscreen}
+            className={`px-2.5 sm:px-3 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1.5 transition ${
+              isFullscreen ? 'bg-white text-black' : 'text-zinc-200 hover:text-white bg-white/10 hover:bg-white/20'
+            }`}
+            title="Alternar Tela Cheia"
           >
-            {isFullscreen ? <Minimize2 className="w-4 h-4" /> : <Maximize2 className="w-4 h-4" />}
+            {isFullscreen ? (
+              <>
+                <Minimize2 className="w-4 h-4" />
+                <span className="hidden sm:inline">Sair da Tela Cheia</span>
+              </>
+            ) : (
+              <>
+                <Maximize2 className="w-4 h-4 text-emerald-400" />
+                <span className="hidden sm:inline">Tela Cheia</span>
+              </>
+            )}
           </button>
 
           <button
@@ -224,14 +262,53 @@ export default function VideoCall({
 
       {/* Main Video & Chat Area */}
       <div className="flex-1 flex relative overflow-hidden bg-black">
-        {/* Remote Video Container */}
-        <div className="flex-1 relative bg-black flex items-center justify-center p-1 sm:p-4">
+        {/* Remote Video Container com Suporte a Duplo Clique e Botão Flutuante de Live */}
+        <div
+          ref={remoteContainerRef}
+          onDoubleClick={toggleLiveFullscreen}
+          className="flex-1 relative bg-black flex items-center justify-center p-1 sm:p-4 select-none cursor-pointer group/stream"
+          title="Dê um duplo clique para abrir ou sair da Tela Cheia da Live"
+        >
+          {/* BOTÃO PROEMINENTE DE TELA CHEIA QUANDO O AMIGO ESTÁ FAZENDO LIVE / TRANSMITINDO */}
+          {remoteIsSharingScreen && (
+            <div className="absolute top-4 right-4 sm:top-6 sm:right-6 z-30 flex items-center gap-2">
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  toggleLiveFullscreen();
+                }}
+                className="bg-black/90 hover:bg-black text-white px-3.5 py-2 rounded-xl text-xs font-black flex items-center gap-2 border-2 border-emerald-500 shadow-2xl backdrop-blur-md transition transform active:scale-95"
+              >
+                {isFullscreen ? (
+                  <>
+                    <Minimize2 className="w-4 h-4 text-amber-400" />
+                    <span>Sair da Tela Cheia</span>
+                  </>
+                ) : (
+                  <>
+                    <Maximize2 className="w-4 h-4 text-emerald-400 animate-pulse" />
+                    <span>⛶ VER LIVE EM TELA CHEIA</span>
+                  </>
+                )}
+              </button>
+            </div>
+          )}
+
+          {/* Dica de Duplo Clique no Desktop */}
+          {remoteIsSharingScreen && !isFullscreen && (
+            <div className="hidden sm:block absolute bottom-4 left-4 z-20 bg-black/70 backdrop-blur px-2.5 py-1 rounded-lg text-[10px] text-zinc-300 opacity-60 group-hover/stream:opacity-100 transition">
+              💡 Dica: Duplo-clique no vídeo para tela cheia
+            </div>
+          )}
+
           {remoteStream ? (
             <video
               ref={remoteVideoRef}
               autoPlay
               playsInline
-              className="w-full h-full object-contain rounded-lg sm:rounded-xl shadow-2xl"
+              className={`w-full h-full object-contain ${
+                isFullscreen ? 'rounded-none' : 'rounded-lg sm:rounded-xl shadow-2xl'
+              }`}
             />
           ) : (
             <div className="text-center p-6">
@@ -251,14 +328,17 @@ export default function VideoCall({
                 Conectado com {peerUsername}
               </p>
               <p className="text-zinc-500 text-xs sm:text-sm mt-1">
-                Aguardando transmissão de vídeo/tela...
+                Aguardando transmissão de vídeo ou tela ao vivo...
               </p>
             </div>
           )}
 
-          {/* Local Video Thumbnail */}
+          {/* Local Video Thumbnail (Picture in Picture) */}
           <div
-            className="absolute bottom-4 right-4 sm:bottom-6 sm:right-6 w-28 sm:w-52 aspect-video border-2 rounded-xl overflow-hidden shadow-2xl group transition-all z-10"
+            onClick={(e) => e.stopPropagation()}
+            className={`absolute bottom-4 right-4 sm:bottom-6 sm:right-6 w-28 sm:w-52 aspect-video border-2 rounded-xl overflow-hidden shadow-2xl group transition-all z-20 ${
+              isFullscreen ? 'opacity-40 hover:opacity-100' : ''
+            }`}
             style={{
               backgroundColor: theme.bgCard,
               borderColor: accent.hex,

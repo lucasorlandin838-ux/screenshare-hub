@@ -81,6 +81,9 @@ export function usePeerCall(
   const [callError, setCallError] = useState<string | null>(null);
   const [currentRoom, setCurrentRoom] = useState<string | null>(null);
 
+  // Mapa REAL de amigos online (por padrão nenhum é online até ser verificado)
+  const [friendsOnline, setFriendsOnline] = useState<Record<string, boolean>>({});
+
   const [callState, setCallState] = useState<CallState>({
     active: false,
     isCaller: false,
@@ -109,6 +112,7 @@ export function usePeerCall(
   const peerRef = useRef<Peer | null>(null);
   const currentCallRef = useRef<MediaConnection | null>(null);
   const dataConnRef = useRef<DataConnection | null>(null);
+  const isDialingCallRef = useRef(false);
   const localStreamRef = useRef<MediaStream | null>(null);
   const camTrackRef = useRef<MediaStreamTrack | null>(null);
   const isScreenSharingRef = useRef(false);
@@ -158,6 +162,9 @@ export function usePeerCall(
         const callerName = incomingCall.peer.replace('hub_', '').split('_')[0];
         currentCallRef.current = incomingCall;
 
+        // Marca quem ligou como online
+        setFriendsOnline((prev) => ({ ...prev, [callerName.toLowerCase()]: true }));
+
         setCallState((prev) => ({
           ...prev,
           incoming: true,
@@ -186,8 +193,11 @@ export function usePeerCall(
         }
 
         if (err.type === 'peer-unavailable') {
-          setCallError('O usuário chamado não está online com o site aberto.');
-          cleanupCall();
+          // Só exibe popup de erro se o usuário estava ativamente ligando para alguém!
+          if (isDialingCallRef.current) {
+            setCallError('O usuário chamado não está online com o site aberto.');
+            cleanupCall();
+          }
         } else {
           setConnectionStatus('error');
         }
@@ -207,7 +217,12 @@ export function usePeerCall(
   }, [username]);
 
   const setupDataConnection = useCallback((conn: DataConnection) => {
+    const peerName = conn.peer.replace('hub_', '').split('_')[0].toLowerCase();
+
     conn.on('open', () => {
+      // Amigo conectado de verdade! Marca como online
+      setFriendsOnline((prev) => ({ ...prev, [peerName]: true }));
+
       conn.send({
         type: 'profile-sync',
         sender: username,
@@ -218,6 +233,10 @@ export function usePeerCall(
     });
 
     conn.on('data', (data: any) => {
+      if (data?.sender) {
+        setFriendsOnline((prev) => ({ ...prev, [data.sender.toLowerCase()]: true }));
+      }
+
       if (data?.type === 'chat' || data?.type === 'dm') {
         setMessages((prev) => [
           ...prev,
@@ -250,9 +269,36 @@ export function usePeerCall(
     });
 
     conn.on('close', () => {
-      console.log('[PeerJS] Canal desconectado');
+      setFriendsOnline((prev) => ({ ...prev, [peerName]: false }));
     });
   }, [username, avatar, nameFont, nameColor]);
+
+  // Função para verificar se um amigo específico está online no PeerJS
+  const checkFriendOnline = useCallback(
+    (targetUsername: string) => {
+      if (!peerRef.current || !peerRef.current.open) return;
+      const cleanTarget = targetUsername.toLowerCase().trim().replace(/[^a-z0-9_]/g, '');
+      if (!cleanTarget || cleanTarget === username?.toLowerCase()) return;
+
+      const targetId = 'hub_' + cleanTarget;
+
+      try {
+        const testConn = peerRef.current.connect(targetId, { reliable: false });
+        testConn.on('open', () => {
+          setFriendsOnline((prev) => ({ ...prev, [cleanTarget]: true }));
+          testConn.send({ type: 'presence-ping', sender: username });
+          setTimeout(() => testConn.close(), 1500);
+        });
+
+        testConn.on('error', () => {
+          setFriendsOnline((prev) => ({ ...prev, [cleanTarget]: false }));
+        });
+      } catch {
+        setFriendsOnline((prev) => ({ ...prev, [cleanTarget]: false }));
+      }
+    },
+    [username]
+  );
 
   const getMedia = useCallback(async () => {
     let stream: MediaStream;
@@ -311,6 +357,7 @@ export function usePeerCall(
       if (!cleanTarget) return;
 
       const targetId = 'hub_' + cleanTarget;
+      isDialingCallRef.current = true;
 
       try {
         const stream = await getMedia();
@@ -334,15 +381,20 @@ export function usePeerCall(
         });
 
         call.on('stream', (remote) => {
+          isDialingCallRef.current = false;
+          setFriendsOnline((prev) => ({ ...prev, [cleanTarget]: true }));
           handleRemoteStream(remote);
         });
 
         call.on('close', () => cleanupCall());
         call.on('error', (e) => {
+          isDialingCallRef.current = false;
+          setFriendsOnline((prev) => ({ ...prev, [cleanTarget]: false }));
           setCallError('O usuário "' + targetUsername + '" não atendeu ou está offline.');
           cleanupCall();
         });
       } catch (err) {
+        isDialingCallRef.current = false;
         setCallError('Erro ao acessar microfone/câmera.');
       }
     },
@@ -410,6 +462,7 @@ export function usePeerCall(
   }, []);
 
   const cleanupCall = useCallback(() => {
+    isDialingCallRef.current = false;
     if (ringIntervalRef.current) {
       clearInterval(ringIntervalRef.current);
       ringIntervalRef.current = null;
@@ -441,7 +494,6 @@ export function usePeerCall(
     });
   }, []);
 
-  // Entrar na Sala de Voz SEM tentar discar para ID inexistente
   const joinRoom = useCallback(
     (roomName: string) => {
       const cleanRoom = roomName.toLowerCase().trim().replace(/[^a-z0-9_]/g, '');
@@ -540,7 +592,6 @@ export function usePeerCall(
     }
   }, []);
 
-  // Enviar mensagem de canal público
   const sendMessage = useCallback(
     (content: string, channelId?: string, file?: ChatAttachment) => {
       if (!content.trim() && !file) return;
@@ -578,7 +629,6 @@ export function usePeerCall(
     [username, avatar, nameFont, nameColor]
   );
 
-  // Enviar Mensagem Direta (DM) Privada para um Amigo Específico
   const sendDirectMessage = useCallback(
     (recipient: string, content: string, file?: ChatAttachment) => {
       if (!content.trim() && !file) return;
@@ -602,7 +652,6 @@ export function usePeerCall(
 
       setMessages((prev) => [...prev, msg]);
 
-      // Se já tivermos conexão com o destinatário, enviamos diretamente
       const targetId = 'hub_' + cleanRecipient;
       if (dataConnRef.current && dataConnRef.current.open && dataConnRef.current.peer === targetId) {
         dataConnRef.current.send({
@@ -618,10 +667,10 @@ export function usePeerCall(
           time: timeStr,
         });
       } else if (peerRef.current) {
-        // Tenta abrir conexão de dados sob demanda com o amigo para entregar a DM
         try {
           const conn = peerRef.current.connect(targetId, { reliable: true });
           conn.on('open', () => {
+            setFriendsOnline((prev) => ({ ...prev, [cleanRecipient]: true }));
             conn.send({
               type: 'dm',
               sender: username,
@@ -636,7 +685,7 @@ export function usePeerCall(
             });
           });
         } catch (e) {
-          console.log('[DM] Erro ao enviar DM para par offline:', e);
+          console.log('[DM] Erro ao enviar DM:', e);
         }
       }
     },
@@ -649,6 +698,7 @@ export function usePeerCall(
     callError,
     currentRoom,
     callState,
+    friendsOnline,
     remoteIsSharingScreen,
     localStream,
     remoteStream,
@@ -659,6 +709,7 @@ export function usePeerCall(
     endCall,
     joinRoom,
     leaveRoom,
+    checkFriendOnline,
     toggleScreenShare,
     toggleMic,
     toggleCamera,

@@ -11,6 +11,7 @@ import {
   User,
   Shield,
   Clock,
+  RefreshCw,
 } from 'lucide-react';
 import { ChatMessage, ChatAttachment, Friend } from '../types';
 import { useTheme } from '../context/ThemeContext';
@@ -19,6 +20,7 @@ import { FONT_OPTIONS } from './UserSettingsModal';
 interface DirectMessageChatProps {
   friendUsername: string;
   friend?: Friend;
+  isOnline: boolean;
   messages: ChatMessage[];
   username: string;
   userAvatar: string;
@@ -26,11 +28,13 @@ interface DirectMessageChatProps {
   userNameColor?: string;
   onSendDM: (recipient: string, content: string, file?: ChatAttachment) => void;
   onCallFriend: (friendUsername: string) => void;
+  onCheckOnline: (friendUsername: string) => void;
 }
 
 export default function DirectMessageChat({
   friendUsername,
   friend,
+  isOnline,
   messages,
   username,
   userAvatar,
@@ -38,6 +42,7 @@ export default function DirectMessageChat({
   userNameColor = '#ffffff',
   onSendDM,
   onCallFriend,
+  onCheckOnline,
 }: DirectMessageChatProps) {
   const { theme, accent } = useTheme();
   const [text, setText] = useState('');
@@ -46,7 +51,11 @@ export default function DirectMessageChat({
   const fileInputRef = useRef<HTMLInputElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
-  // Filtra apenas as mensagens privadas trocadas entre o usuário e este amigo
+  // Checa status do amigo ao abrir a conversa
+  useEffect(() => {
+    onCheckOnline(friendUsername);
+  }, [friendUsername, onCheckOnline]);
+
   const dmMessages = messages.filter((m) => {
     if (!m.isPrivate) return false;
     const s = m.sender.toLowerCase();
@@ -139,7 +148,13 @@ export default function DirectMessageChat({
                 <span className="text-white uppercase">{friendUsername[0]}</span>
               )}
             </div>
-            <span className="absolute bottom-0 right-0 w-2.5 h-2.5 rounded-full bg-emerald-500 border border-black" />
+
+            {/* Indicador de Online Real: Verde se online, Cinza se offline */}
+            <span
+              className={`absolute bottom-0 right-0 w-2.5 h-2.5 rounded-full border border-black ${
+                isOnline ? 'bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.8)]' : 'bg-zinc-600'
+              }`}
+            />
           </div>
 
           <div className="overflow-hidden">
@@ -152,18 +167,37 @@ export default function DirectMessageChat({
                 {friendUsername}
               </span>
             </div>
-            <div className="text-[10px] text-zinc-400 flex items-center gap-1">
-              <Shield className="w-3 h-3 text-emerald-400" />
-              <span>Chat Privado Direto</span>
+
+            {/* Status Textual Real: Online ou Offline */}
+            <div className="text-[10px] flex items-center gap-1.5">
+              {isOnline ? (
+                <span className="text-emerald-400 font-bold flex items-center gap-1">
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" /> Online agora
+                </span>
+              ) : (
+                <span className="text-zinc-400 flex items-center gap-1">
+                  <span className="w-1.5 h-1.5 rounded-full bg-zinc-600" /> Offline (aguardando abrir o site)
+                </span>
+              )}
+
+              <button
+                onClick={() => onCheckOnline(friendUsername)}
+                className="p-0.5 text-zinc-500 hover:text-white transition"
+                title="Checar status de conexão"
+              >
+                <RefreshCw className="w-2.5 h-2.5" />
+              </button>
             </div>
           </div>
         </div>
 
-        {/* Botões rápidos: Ligar ou Compartilhar Tela com este amigo */}
+        {/* Botão de Chamada com o Amigo */}
         <div className="flex items-center gap-2">
           <button
             onClick={() => onCallFriend(friendUsername)}
-            className="px-3 py-1.5 rounded-lg text-xs font-bold text-white flex items-center gap-1.5 shadow transition active:scale-95 bg-emerald-600 hover:bg-emerald-500"
+            className={`px-3 py-1.5 rounded-lg text-xs font-bold text-white flex items-center gap-1.5 shadow transition active:scale-95 ${
+              isOnline ? 'bg-emerald-600 hover:bg-emerald-500' : 'bg-zinc-700 hover:bg-zinc-600'
+            }`}
             title={`Iniciar Chamada de Vídeo e Tela com ${friendUsername}`}
           >
             <Phone className="w-3.5 h-3.5" />
@@ -175,30 +209,49 @@ export default function DirectMessageChat({
 
       {/* Área de Mensagens do Chat Privado */}
       <div className="flex-1 overflow-y-auto p-4 space-y-4">
-        {/* Card Inicial do Amigo */}
+        {/* Card Inicial do Amigo com Status Real */}
         <div className="pt-6 pb-4 border-b" style={{ borderColor: theme.borderColor }}>
-          <div
-            className="w-16 h-16 rounded-full overflow-hidden border-2 flex items-center justify-center font-black text-2xl mb-3 shadow-lg"
-            style={{
-              backgroundColor: theme.bgCard,
-              borderColor: friend?.nameColor || accent.hex,
-            }}
-          >
-            {friend?.avatar ? (
-              <img src={friend.avatar} alt={friendUsername} className="w-full h-full object-cover" />
-            ) : (
-              <span className="text-white uppercase">{friendUsername[0]}</span>
-            )}
+          <div className="relative inline-block mb-3">
+            <div
+              className="w-16 h-16 rounded-full overflow-hidden border-2 flex items-center justify-center font-black text-2xl shadow-lg"
+              style={{
+                backgroundColor: theme.bgCard,
+                borderColor: friend?.nameColor || accent.hex,
+              }}
+            >
+              {friend?.avatar ? (
+                <img src={friend.avatar} alt={friendUsername} className="w-full h-full object-cover" />
+              ) : (
+                <span className="text-white uppercase">{friendUsername[0]}</span>
+              )}
+            </div>
+
+            <span
+              className={`absolute bottom-0 right-0 w-4 h-4 rounded-full border-2 border-black ${
+                isOnline ? 'bg-emerald-500' : 'bg-zinc-600'
+              }`}
+            />
           </div>
+
           <h2 className="text-2xl font-black text-white tracking-tight flex items-center gap-2">
             <span>{friendUsername}</span>
+            <span
+              className={`text-xs px-2 py-0.5 rounded-full font-bold ${
+                isOnline ? 'bg-emerald-950 text-emerald-400 border border-emerald-800' : 'bg-zinc-800 text-zinc-400 border border-zinc-700'
+              }`}
+            >
+              {isOnline ? 'Online' : 'Offline'}
+            </span>
           </h2>
+
           <p className="text-xs text-zinc-400 mt-1 max-w-lg">
-            Este é o início do histórico de mensagens privadas entre você e <strong className="text-white">@{friendUsername}</strong>. Ninguém mais tem acesso a esta conversa.
+            {isOnline
+              ? `@${friendUsername} está online no ScreenShare Hub! Vocês podem conversar e compartilhar tela.`
+              : `@${friendUsername} está offline no momento. Mande o link do site para ele entrar e vocês conversarem!`}
           </p>
         </div>
 
-        {/* Lista de Mensagens Privadas */}
+        {/* Lista de Mensagens */}
         {dmMessages.length === 0 ? (
           <div className="text-center text-zinc-500 text-xs py-8 italic">
             Nenhuma mensagem privada enviada ainda. Digite algo ou envie uma foto para @{friendUsername} abaixo! 👋
@@ -367,7 +420,7 @@ export default function DirectMessageChat({
                 {selectedFile.name}
               </div>
               <div className="text-[10px] text-zinc-400">
-                {formatFileSize(selectedFile.size)} • Pronto para enviar para {friendUsername}
+                {formatFileSize(selectedFile.size)} • Pronto para enviar
               </div>
             </div>
           </div>

@@ -68,6 +68,7 @@ export interface Friend {
   avatar?: string;
   nameFont?: string;
   nameColor?: string;
+  isOnline?: boolean;
   lastSeen?: string;
 }
 
@@ -107,4 +108,3 @@ export interface Message {
   content: string;
   createdAt: string;
 }
-

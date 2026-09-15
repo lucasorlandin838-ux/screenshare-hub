@@ -17,8 +17,6 @@ import {
   RefreshCw,
   Settings,
   MessageSquare,
-  UserCheck,
-  Sparkles,
 } from 'lucide-react';
 import { usePeerCall } from '../hooks/usePeerCall';
 import VideoCall from '../components/VideoCall';
@@ -66,7 +64,6 @@ export default function Home() {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
 
-  // Navegação: Canal de Texto, Chat Privado (DM) ou Sala de Voz
   const [activeView, setActiveView] = useState<ActiveView>({
     type: 'channel',
     id: 'geral',
@@ -93,6 +90,7 @@ export default function Home() {
     callError,
     currentRoom,
     callState,
+    friendsOnline,
     remoteIsSharingScreen,
     localStream,
     remoteStream,
@@ -103,12 +101,29 @@ export default function Home() {
     endCall,
     joinRoom,
     leaveRoom,
+    checkFriendOnline,
     toggleScreenShare,
     toggleMic,
     toggleCamera,
     sendMessage,
     sendDirectMessage,
   } = usePeerCall(username, avatar, nameFont, nameColor);
+
+  // Verifica status de cada amigo salvo a cada 30 segundos
+  useEffect(() => {
+    if (!username || friends.length === 0) return;
+    friends.forEach((f) => {
+      checkFriendOnline(f.username);
+    });
+
+    const interval = setInterval(() => {
+      friends.forEach((f) => {
+        checkFriendOnline(f.username);
+      });
+    }, 30000);
+
+    return () => clearInterval(interval);
+  }, [username, friends, checkFriendOnline]);
 
   const saveProfile = (newName: string, newAvatar: string, newFont: string, newColor: string) => {
     if (newName) {
@@ -130,10 +145,10 @@ export default function Home() {
     const clean = friendInput.trim().toLowerCase().replace(/[^a-z0-9_]/g, '');
     if (!clean || clean === username) return;
     if (friends.some((f) => f.username === clean)) {
-      // Já é amigo, abre o chat direto
       setActiveView({ type: 'dm', friendUsername: clean });
       setFriendInput('');
       setMobileMenuOpen(false);
+      checkFriendOnline(clean);
       return;
     }
 
@@ -141,9 +156,9 @@ export default function Home() {
     setFriends(updated);
     localStorage.setItem('hub_friends', JSON.stringify(updated));
     setFriendInput('');
-    // Abre automaticamente o chat privado com o amigo recém-adicionado
     setActiveView({ type: 'dm', friendUsername: clean });
     setMobileMenuOpen(false);
+    checkFriendOnline(clean);
   };
 
   const handleRemoveFriend = (friendName: string) => {
@@ -181,9 +196,11 @@ export default function Home() {
       joinRoom(roomParam);
       setActiveView({ type: 'voice', roomId: roomParam });
     } else if (dmParam && dmParam !== username) {
-      setActiveView({ type: 'dm', friendUsername: dmParam.trim().toLowerCase() });
+      const cleanDM = dmParam.trim().toLowerCase();
+      setActiveView({ type: 'dm', friendUsername: cleanDM });
+      checkFriendOnline(cleanDM);
     }
-  }, [username, joinRoom]);
+  }, [username, joinRoom, checkFriendOnline]);
 
   const handleStartCall = async (userToCall: string) => {
     if (!userToCall.trim()) return;
@@ -267,7 +284,6 @@ export default function Home() {
 
   const displayId = actualPeerId ? actualPeerId.replace('hub_', '') : username;
 
-  // Informações do canal ou amigo ativo
   const activeChannel =
     activeView.type === 'channel'
       ? TEXT_CHANNELS.find((c) => c.id === activeView.id) || TEXT_CHANNELS[0]
@@ -282,6 +298,11 @@ export default function Home() {
     activeView.type === 'dm'
       ? friends.find((f) => f.username.toLowerCase() === activeView.friendUsername.toLowerCase())
       : undefined;
+
+  const isCurrentDMFriendOnline =
+    activeView.type === 'dm'
+      ? !!friendsOnline[activeView.friendUsername.toLowerCase()]
+      : false;
 
   return (
     <div
@@ -335,6 +356,11 @@ export default function Home() {
                 <span className="font-black text-white text-sm truncate">
                   @{activeView.friendUsername}
                 </span>
+                <span
+                  className={`w-2 h-2 rounded-full ${
+                    isCurrentDMFriendOnline ? 'bg-emerald-500' : 'bg-zinc-600'
+                  }`}
+                />
               </>
             ) : activeView.type === 'voice' ? (
               <>
@@ -411,7 +437,7 @@ export default function Home() {
                 ScreenShare Hub
               </span>
               <span className="text-[10px] text-zinc-400 flex items-center gap-1">
-                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" /> Online
+                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" /> Conectado
               </span>
             </div>
           </div>
@@ -465,7 +491,7 @@ export default function Home() {
               </div>
             </form>
 
-            {/* Lista de Amigos com Botão de Chat Privado */}
+            {/* Lista de Amigos com Indicador de Online Real (Verde se online, Cinza se offline) */}
             {friends.length === 0 ? (
               <p className="text-xs text-zinc-500 px-2 italic">
                 Nenhum amigo ainda. Digite o nome acima (ex: joce) para abrir o chat privado!
@@ -477,12 +503,15 @@ export default function Home() {
                     activeView.type === 'dm' &&
                     activeView.friendUsername.toLowerCase() === f.username.toLowerCase();
 
+                  const isFriendOnline = !!friendsOnline[f.username.toLowerCase()];
+
                   return (
                     <div
                       key={f.username}
                       onClick={() => {
                         setActiveView({ type: 'dm', friendUsername: f.username });
                         setMobileMenuOpen(false);
+                        checkFriendOnline(f.username);
                       }}
                       className={`flex items-center justify-between px-2.5 py-1.5 rounded-xl border transition cursor-pointer group ${
                         isCurrentDM
@@ -508,7 +537,15 @@ export default function Home() {
                               <span>{f.username[0]}</span>
                             )}
                           </div>
-                          <span className="absolute bottom-0 right-0 w-2 h-2 rounded-full bg-emerald-500 border border-black" />
+
+                          {/* Indicador REAL: Verde se estiver comprovadamente online, Cinza se estiver offline */}
+                          <span
+                            className={`absolute bottom-0 right-0 w-2.5 h-2.5 rounded-full border border-black ${
+                              isFriendOnline
+                                ? 'bg-emerald-500 shadow-[0_0_6px_rgba(16,185,129,0.8)]'
+                                : 'bg-zinc-600'
+                            }`}
+                          />
                         </div>
 
                         <div className="overflow-hidden">
@@ -518,8 +555,12 @@ export default function Home() {
                           >
                             @{f.username}
                           </span>
-                          <span className="text-[9px] text-zinc-400 block">
-                            {isCurrentDM ? '● Chat Aberto' : 'Chat Privado'}
+                          <span className="text-[9px] block">
+                            {isFriendOnline ? (
+                              <span className="text-emerald-400 font-semibold">● Online</span>
+                            ) : (
+                              <span className="text-zinc-500">○ Offline</span>
+                            )}
                           </span>
                         </div>
                       </div>
@@ -531,7 +572,9 @@ export default function Home() {
                             setMobileMenuOpen(false);
                             handleStartCall(f.username);
                           }}
-                          className="p-1 rounded-md bg-emerald-600 hover:bg-emerald-500 text-white transition active:scale-95 shadow"
+                          className={`p-1 rounded-md text-white transition active:scale-95 shadow ${
+                            isFriendOnline ? 'bg-emerald-600 hover:bg-emerald-500' : 'bg-zinc-700 hover:bg-zinc-600'
+                          }`}
                           title={'Ligar direto para ' + f.username}
                         >
                           <Phone className="w-3 h-3" />
@@ -782,12 +825,11 @@ export default function Home() {
             </div>
           )}
 
-          {/* RENDERIZAÇÃO CONFORME A NAVEGAÇÃO ATIVA */}
           {activeView.type === 'dm' ? (
-            /* 1. CHAT PRIVADO COM AMIGO (ex: Joce) */
             <DirectMessageChat
               friendUsername={activeView.friendUsername}
               friend={activeDMFriend}
+              isOnline={isCurrentDMFriendOnline}
               messages={messages}
               username={username}
               userAvatar={avatar}
@@ -795,9 +837,9 @@ export default function Home() {
               userNameColor={nameColor}
               onSendDM={sendDirectMessage}
               onCallFriend={handleStartCall}
+              onCheckOnline={checkFriendOnline}
             />
           ) : activeView.type === 'voice' ? (
-            /* 2. SALA DE VOZ E TRANSMISSÃO */
             <VoiceRoomPanel
               room={activeVoiceRoom}
               username={username}
@@ -810,7 +852,6 @@ export default function Home() {
               }}
             />
           ) : (
-            /* 3. CANAL DE TEXTO PÚBLICO */
             <TextChannelChat
               channel={activeChannel}
               messages={messages}
