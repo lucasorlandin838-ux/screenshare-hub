@@ -38,6 +38,7 @@ export default function Home() {
 
   const {
     callState,
+    remoteIsSharingScreen,
     localStream,
     remoteStream,
     messages,
@@ -290,6 +291,7 @@ export default function Home() {
           remoteStream={remoteStream}
           peerUsername={callState.peerUsername}
           isScreenSharing={callState.isScreenSharing}
+          remoteIsSharingScreen={remoteIsSharingScreen}
           micMuted={callState.micMuted}
           camMuted={callState.camMuted}
           messages={messages}

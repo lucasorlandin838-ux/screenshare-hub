@@ -17,6 +17,7 @@ interface Props {
   remoteStream: MediaStream | null;
   peerUsername: string;
   isScreenSharing: boolean;
+  remoteIsSharingScreen?: boolean;
   micMuted: boolean;
   camMuted: boolean;
   messages: ChatMessage[];
@@ -32,6 +33,7 @@ export default function VideoCall({
   remoteStream,
   peerUsername,
   isScreenSharing,
+  remoteIsSharingScreen,
   micMuted,
   camMuted,
   messages,
@@ -47,17 +49,23 @@ export default function VideoCall({
   const [inputMsg, setInputMsg] = useState('');
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
+  // Forçar autoplay no vídeo local
   useEffect(() => {
     if (localVideoRef.current && localStream) {
       localVideoRef.current.srcObject = localStream;
+      localVideoRef.current.play().catch(() => {});
     }
   }, [localStream]);
 
+  // Forçar autoplay no vídeo remoto e reagir a mudanças de faixa
   useEffect(() => {
     if (remoteVideoRef.current && remoteStream) {
       remoteVideoRef.current.srcObject = remoteStream;
+      remoteVideoRef.current.play().catch((err) => {
+        console.log('[VideoCall] Autoplay vídeo remoto aguardando clique:', err);
+      });
     }
-  }, [remoteStream]);
+  }, [remoteStream, remoteIsSharingScreen]);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -79,9 +87,16 @@ export default function VideoCall({
           <span className="text-white font-semibold text-sm">
             Chamada com: <span className="text-indigo-400 font-bold">{peerUsername}</span>
           </span>
+
           {isScreenSharing && (
+            <span className="bg-amber-500/20 text-amber-300 text-xs px-2.5 py-0.5 rounded-full border border-amber-500/40 flex items-center gap-1 font-medium">
+              <Monitor className="w-3 h-3 text-amber-400" /> Você está transmitindo sua tela
+            </span>
+          )}
+
+          {remoteIsSharingScreen && (
             <span className="bg-indigo-500/20 text-indigo-300 text-xs px-2.5 py-0.5 rounded-full border border-indigo-500/40 flex items-center gap-1 font-medium">
-              <Monitor className="w-3 h-3" /> Transmitindo tela
+              <Monitor className="w-3 h-3 text-indigo-400" /> {peerUsername} está compartilhando a tela
             </span>
           )}
         </div>
@@ -126,22 +141,22 @@ export default function VideoCall({
           )}
 
           {/* Local Video Thumbnail (Picture in Picture) */}
-          <div className="absolute bottom-6 right-6 w-52 aspect-video bg-gray-900 border-2 border-indigo-500/50 rounded-xl overflow-hidden shadow-2xl group transition-transform hover:scale-105">
+          <div className="absolute bottom-6 right-6 w-56 aspect-video bg-gray-900 border-2 border-indigo-500/50 rounded-xl overflow-hidden shadow-2xl group transition-transform hover:scale-105 z-10">
             <video
               ref={localVideoRef}
               autoPlay
               playsInline
               muted
-              className={`w-full h-full object-cover ${camMuted ? 'hidden' : ''}`}
+              className={`w-full h-full object-cover ${camMuted && !isScreenSharing ? 'hidden' : ''}`}
             />
-            {camMuted && (
+            {camMuted && !isScreenSharing && (
               <div className="w-full h-full flex flex-col items-center justify-center text-gray-400 text-xs gap-1">
                 <VideoOff className="w-6 h-6 text-gray-500" />
                 <span>Câmera desligada</span>
               </div>
             )}
-            <div className="absolute top-2 left-2 bg-black/60 backdrop-blur px-2 py-0.5 rounded text-[11px] text-white font-medium">
-              Você {isScreenSharing ? '(Tela)' : ''}
+            <div className="absolute top-2 left-2 bg-black/70 backdrop-blur px-2 py-0.5 rounded text-[11px] text-white font-medium">
+              Você {isScreenSharing ? '(Sua Tela)' : ''}
             </div>
           </div>
         </div>
@@ -225,11 +240,12 @@ export default function VideoCall({
           {camMuted ? <VideoOff className="w-5 h-5" /> : <Video className="w-5 h-5" />}
         </button>
 
+        {/* Screen Share Button */}
         <button
           onClick={onToggleScreen}
-          className={`px-5 py-3 rounded-full flex items-center gap-2 font-semibold text-sm transition transform hover:scale-105 shadow-lg ${
+          className={`px-6 py-3.5 rounded-full flex items-center gap-2.5 font-bold text-sm transition transform hover:scale-105 shadow-xl ${
             isScreenSharing
-              ? 'bg-amber-600 hover:bg-amber-500 text-white shadow-amber-600/30'
+              ? 'bg-amber-600 hover:bg-amber-500 text-white shadow-amber-600/30 ring-2 ring-amber-400/50'
               : 'bg-indigo-600 hover:bg-indigo-500 text-white shadow-indigo-600/30'
           }`}
         >
@@ -241,7 +257,7 @@ export default function VideoCall({
           ) : (
             <>
               <Monitor className="w-5 h-5" />
-              <span>Compartilhar Tela</span>
+              <span>Compartilhar Minha Tela</span>
             </>
           )}
         </button>
