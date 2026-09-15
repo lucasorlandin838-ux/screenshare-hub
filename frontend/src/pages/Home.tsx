@@ -16,23 +16,21 @@ import {
   Radio,
   RefreshCw,
   Settings,
-  Sparkles,
   MessageSquare,
-  Compass,
 } from 'lucide-react';
 import { usePeerCall } from '../hooks/usePeerCall';
 import VideoCall from '../components/VideoCall';
 import IncomingCallModal from '../components/IncomingCallModal';
 import TextChannelChat from '../components/TextChannelChat';
-import UserSettingsModal from '../components/UserSettingsModal';
+import UserSettingsModal, { FONT_OPTIONS } from '../components/UserSettingsModal';
 import { useTheme } from '../context/ThemeContext';
-import { Friend, TextChannel } from '../types';
+import { Friend, TextChannel, ChatAttachment } from '../types';
 
 const TEXT_CHANNELS: TextChannel[] = [
   { id: 'geral', name: 'geral', desc: 'Canal principal para conversar com a galera' },
   { id: 'jogos', name: 'jogos', desc: 'Dicas, clipes e papo sobre games' },
   { id: 'bate-papo', name: 'bate-papo', desc: 'Conversas aleatórias do dia a dia' },
-  { id: 'memes', name: 'memes', desc: 'Imagens, links engraçados e zoeira' },
+  { id: 'memes', name: 'memes', desc: 'Fotos, memes, imagens e arquivos' },
 ];
 
 const VOICE_CHANNELS = [
@@ -50,6 +48,14 @@ export default function Home() {
 
   const [avatar, setAvatar] = useState<string>(() => {
     return localStorage.getItem('hub_avatar') || '';
+  });
+
+  const [nameFont, setNameFont] = useState<string>(() => {
+    return localStorage.getItem('hub_name_font') || 'default';
+  });
+
+  const [nameColor, setNameColor] = useState<string>(() => {
+    return localStorage.getItem('hub_name_color') || '#ffffff';
   });
 
   const [nameInput, setNameInput] = useState('');
@@ -91,15 +97,21 @@ export default function Home() {
     toggleMic,
     toggleCamera,
     sendMessage,
-  } = usePeerCall(username, avatar);
+  } = usePeerCall(username, avatar, nameFont, nameColor);
 
-  const saveProfile = (newName: string, newAvatar: string) => {
+  const saveProfile = (newName: string, newAvatar: string, newFont: string, newColor: string) => {
     if (newName) {
       localStorage.setItem('hub_username', newName);
       setUsername(newName);
     }
     localStorage.setItem('hub_avatar', newAvatar);
     setAvatar(newAvatar);
+
+    localStorage.setItem('hub_name_font', newFont);
+    setNameFont(newFont);
+
+    localStorage.setItem('hub_name_color', newColor);
+    setNameColor(newColor);
   };
 
   const handleAddFriend = (e: React.FormEvent) => {
@@ -134,7 +146,6 @@ export default function Home() {
     setTimeout(() => setCopiedId(false), 2500);
   };
 
-  // Se veio de um link com ?call=usuario ou ?room=sala
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const callParam = params.get('call');
@@ -156,8 +167,8 @@ export default function Home() {
   };
 
   const activeChannel = TEXT_CHANNELS.find((c) => c.id === activeChannelId) || TEXT_CHANNELS[0];
+  const currentFontObj = FONT_OPTIONS.find((f) => f.id === nameFont) || FONT_OPTIONS[0];
 
-  // Tela inicial de entrada caso não tenha nome de usuário definido
   if (!username) {
     return (
       <div
@@ -186,13 +197,13 @@ export default function Home() {
             ScreenShare Hub
           </h1>
           <p className="text-zinc-400 text-xs sm:text-sm text-center mb-6">
-            O Discord gratuito do navegador: Chat de texto, canais de voz e compartilhamento de tela em alta qualidade.
+            O Discord gratuito do navegador: Chat de texto com envio de arquivos, canais de voz e compartilhamento de tela.
           </p>
 
           <form
             onSubmit={(e) => {
               e.preventDefault();
-              saveProfile(nameInput, '');
+              saveProfile(nameInput, '', 'default', '#ffffff');
             }}
             className="space-y-4"
           >
@@ -245,12 +256,14 @@ export default function Home() {
         />
       )}
 
-      {/* Modal de Configurações (Foto de Perfil, Cores & Temas) */}
+      {/* Modal de Configurações */}
       <UserSettingsModal
         isOpen={settingsOpen}
         onClose={() => setSettingsOpen(false)}
         username={username}
         avatar={avatar}
+        nameFont={nameFont}
+        nameColor={nameColor}
         onSaveProfile={saveProfile}
       />
 
@@ -441,7 +454,6 @@ export default function Home() {
               </button>
             </div>
 
-            {/* Adicionar Amigo */}
             <form onSubmit={handleAddFriend} className="mb-2 px-1">
               <div className="flex gap-1.5">
                 <input
@@ -552,7 +564,7 @@ export default function Home() {
           </div>
         </div>
 
-        {/* BARRA DE USUÁRIO DO RODAPÉ (ESTILO DISCORD) */}
+        {/* BARRA DE USUÁRIO DO RODAPÉ (COM FONTE E COR PERSONALIZADA) */}
         <div
           className="h-16 border-t px-3 flex items-center justify-between"
           style={{
@@ -560,18 +572,17 @@ export default function Home() {
             borderColor: theme.borderColor,
           }}
         >
-          {/* Avatar e Nome */}
           <div
             onClick={() => setSettingsOpen(true)}
             className="flex items-center gap-2.5 overflow-hidden p-1 rounded-lg hover:bg-white/5 cursor-pointer flex-1 transition mr-1"
-            title="Clique para abrir configurações de perfil e temas"
+            title="Clique para abrir configurações de perfil, cores e fontes"
           >
             <div className="relative flex-shrink-0">
               <div
                 className="w-9 h-9 rounded-full overflow-hidden border flex items-center justify-center font-bold text-xs shadow"
                 style={{
                   backgroundColor: theme.bgCard,
-                  borderColor: accent.hex,
+                  borderColor: nameColor,
                 }}
               >
                 {avatar ? (
@@ -592,19 +603,23 @@ export default function Home() {
             </div>
 
             <div className="overflow-hidden">
-              <div className="text-xs font-black text-white truncate">{username}</div>
+              <div
+                className={`text-xs font-black truncate ${currentFontObj.className}`}
+                style={{ color: nameColor }}
+              >
+                {username}
+              </div>
               <div className="text-[10px] text-zinc-400 font-mono truncate">
                 ID: {displayId}
               </div>
             </div>
           </div>
 
-          {/* Botões de Ação do Usuário */}
           <div className="flex items-center gap-1">
             <button
               onClick={() => setSettingsOpen(true)}
               className="p-1.5 rounded-lg text-zinc-400 hover:text-white hover:bg-white/10 transition"
-              title="Configurações (Foto & Cores)"
+              title="Configurações (Foto, Cores & Fontes)"
             >
               <Settings className="w-4 h-4" />
             </button>
@@ -644,7 +659,6 @@ export default function Home() {
         />
       ) : (
         <div className="flex-1 flex flex-col h-full overflow-hidden">
-          {/* Notificação de Erro na Chamada */}
           {callError && (
             <div className="m-3 bg-red-950/90 border border-red-800 rounded-xl p-3 text-red-200 text-xs flex items-center justify-between animate-shake">
               <div className="flex items-center gap-2">
@@ -660,12 +674,14 @@ export default function Home() {
             </div>
           )}
 
-          {/* CHAT DE TEXTO DO CANAL ATIVO */}
+          {/* CHAT DE TEXTO COM SUPORTE A ARQUIVOS, FONTES E CORES */}
           <TextChannelChat
             channel={activeChannel}
             messages={messages}
             username={username}
             userAvatar={avatar}
+            userNameFont={nameFont}
+            userNameColor={nameColor}
             onSendMessage={sendMessage}
             onStartVoiceCall={() => joinRoom(activeChannel.id)}
           />

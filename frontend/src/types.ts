@@ -1,22 +1,36 @@
 export type ThemeId = 'discord' | 'oled' | 'midnight' | 'cyberpunk' | 'matrix';
 export type AccentColor = 'blurple' | 'emerald' | 'cyan' | 'rose' | 'amber';
 
+export interface ChatAttachment {
+  name: string;
+  size: number;
+  type: string;
+  dataUrl: string;
+}
+
 export interface UserSettings {
   avatar?: string;
   theme: ThemeId;
   accent: AccentColor;
+  nameFont?: string;
+  nameColor?: string;
 }
 
 export interface UserProfile {
   username: string;
   avatar?: string;
+  nameFont?: string;
+  nameColor?: string;
 }
 
 export interface ChatMessage {
   id: string;
   sender: string;
   avatar?: string;
+  nameFont?: string;
+  nameColor?: string;
   content: string;
+  file?: ChatAttachment;
   time: string;
   channelId?: string;
   isSystem?: boolean;
@@ -33,6 +47,8 @@ export interface CallState {
   isCaller: boolean;
   peerUsername: string;
   peerAvatar?: string;
+  peerNameFont?: string;
+  peerNameColor?: string;
   incoming: boolean;
   isScreenSharing: boolean;
   micMuted: boolean;
@@ -42,6 +58,8 @@ export interface CallState {
 export interface Friend {
   username: string;
   avatar?: string;
+  nameFont?: string;
+  nameColor?: string;
   lastSeen?: string;
 }
 
@@ -55,6 +73,8 @@ export interface User {
   id: string;
   username: string;
   avatar?: string;
+  nameFont?: string;
+  nameColor?: string;
   email?: string;
   status?: string;
 }
@@ -80,5 +100,6 @@ export interface Message {
   senderUsername: string;
   senderAvatar?: string;
   content: string;
+  file?: ChatAttachment;
   createdAt: string;
 }

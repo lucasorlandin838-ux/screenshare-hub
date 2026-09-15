@@ -1,15 +1,44 @@
 import React, { useState, useRef } from 'react';
-import { X, Upload, Palette, User, Check, Sparkles, Trash2, Camera } from 'lucide-react';
+import { X, Upload, Palette, User, Check, Sparkles, Trash2, Camera, Type, Droplet } from 'lucide-react';
 import { useTheme, THEMES, ACCENTS } from '../context/ThemeContext';
 import { PRESET_AVATARS } from './AvatarPresets';
 import { ThemeId, AccentColor } from '../types';
+
+export interface FontOption {
+  id: string;
+  name: string;
+  className: string;
+  preview: string;
+}
+
+export const FONT_OPTIONS: FontOption[] = [
+  { id: 'default', name: 'Padrão Moderno', className: '', preview: 'Nome Estiloso' },
+  { id: 'gamer', name: 'Gamer / Cyberpunk', className: 'font-gamer tracking-wider', preview: 'G4M3R_PR0' },
+  { id: 'cursive', name: 'Cursiva / Manuscrita', className: 'font-cursive', preview: 'Nome Elegante' },
+  { id: 'hacker', name: 'Hacker / Terminal', className: 'font-hacker font-bold', preview: 'root@admin:~#' },
+  { id: 'medieval', name: 'Medieval / RPG', className: 'font-medieval tracking-wide', preview: 'Lord Supremo' },
+  { id: 'bold-modern', name: 'Impacto / Bold', className: 'font-bold-modern font-black', preview: 'IMPACTO 2026' },
+];
+
+export const PRESET_NAME_COLORS = [
+  { name: 'Ouro Dourado', hex: '#fbbf24' },
+  { name: 'Rosa Choque', hex: '#f43f5e' },
+  { name: 'Ciano Gelo', hex: '#38bdf8' },
+  { name: 'Verde Matrix', hex: '#34d399' },
+  { name: 'Roxo Elétrico', hex: '#c084fc' },
+  { name: 'Laranja Fogo', hex: '#fb923c' },
+  { name: 'Branco Puro', hex: '#ffffff' },
+  { name: 'Blurple Discord', hex: '#818cf8' },
+];
 
 interface UserSettingsModalProps {
   isOpen: boolean;
   onClose: () => void;
   username: string;
   avatar: string;
-  onSaveProfile: (newUsername: string, newAvatar: string) => void;
+  nameFont?: string;
+  nameColor?: string;
+  onSaveProfile: (newUsername: string, newAvatar: string, newFont: string, newColor: string) => void;
 }
 
 export default function UserSettingsModal({
@@ -17,18 +46,21 @@ export default function UserSettingsModal({
   onClose,
   username,
   avatar,
+  nameFont = 'default',
+  nameColor = '#ffffff',
   onSaveProfile,
 }: UserSettingsModalProps) {
   const { theme, themeId, setThemeId, accent, accentId, setAccentId } = useTheme();
   const [activeTab, setActiveTab] = useState<'profile' | 'appearance'>('profile');
   const [currentName, setCurrentName] = useState(username);
   const [currentAvatar, setCurrentAvatar] = useState(avatar);
+  const [currentFont, setCurrentFont] = useState(nameFont);
+  const [currentColor, setCurrentColor] = useState(nameColor);
   const [isSaved, setIsSaved] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   if (!isOpen) return null;
 
-  // Comprime e converte imagem para Base64 leve usando Canvas
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -71,13 +103,15 @@ export default function UserSettingsModal({
   const handleSave = () => {
     const cleanName = currentName.trim().toLowerCase().replace(/[^a-z0-9_]/g, '');
     if (!cleanName) return;
-    onSaveProfile(cleanName, currentAvatar);
+    onSaveProfile(cleanName, currentAvatar, currentFont, currentColor);
     setIsSaved(true);
     setTimeout(() => {
       setIsSaved(false);
       onClose();
     }, 600);
   };
+
+  const selectedFontObj = FONT_OPTIONS.find((f) => f.id === currentFont) || FONT_OPTIONS[0];
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-6 bg-black/80 backdrop-blur-md">
@@ -89,7 +123,7 @@ export default function UserSettingsModal({
           color: theme.textPrimary,
         }}
       >
-        {/* Barra Lateral do Modal (Abas) */}
+        {/* Barra Lateral do Modal */}
         <div
           className="w-full md:w-56 p-4 border-b md:border-b-0 md:border-r flex flex-row md:flex-col gap-1.5 flex-shrink-0"
           style={{
@@ -112,7 +146,7 @@ export default function UserSettingsModal({
             }`}
           >
             <User className="w-4 h-4" style={{ color: activeTab === 'profile' ? accent.hex : undefined }} />
-            Meu Perfil
+            Meu Perfil & Nome
           </button>
 
           <button
@@ -124,7 +158,7 @@ export default function UserSettingsModal({
             }`}
           >
             <Palette className="w-4 h-4" style={{ color: activeTab === 'appearance' ? accent.hex : undefined }} />
-            Cores & Temas
+            Cores & Temas do App
           </button>
         </div>
 
@@ -139,7 +173,7 @@ export default function UserSettingsModal({
               {activeTab === 'profile' ? (
                 <>
                   <User className="w-5 h-5" style={{ color: accent.hex }} />
-                  Personalizar Perfil
+                  Personalizar Perfil, Nome & Fontes
                 </>
               ) : (
                 <>
@@ -161,7 +195,7 @@ export default function UserSettingsModal({
           <div className="flex-1 overflow-y-auto p-4 sm:p-6 space-y-6">
             {activeTab === 'profile' ? (
               <div className="space-y-6">
-                {/* Visualização do Avatar Atual */}
+                {/* Visualização do Perfil com Nome Estilizado */}
                 <div
                   className="p-4 rounded-xl border flex flex-col sm:flex-row items-center gap-4 text-center sm:text-left"
                   style={{ backgroundColor: theme.bgInput, borderColor: theme.borderColor }}
@@ -169,7 +203,7 @@ export default function UserSettingsModal({
                   <div className="relative group">
                     <div
                       className="w-20 h-20 rounded-full overflow-hidden border-2 shadow-lg flex items-center justify-center font-black text-2xl"
-                      style={{ borderColor: accent.hex, backgroundColor: theme.bgSidebar }}
+                      style={{ borderColor: currentColor, backgroundColor: theme.bgSidebar }}
                     >
                       {currentAvatar ? (
                         <img
@@ -191,10 +225,18 @@ export default function UserSettingsModal({
                     </button>
                   </div>
 
-                  <div className="flex-1">
-                    <h3 className="font-bold text-white text-base">Foto de Perfil</h3>
-                    <p className="text-xs text-zinc-400 mt-0.5">
-                      Envie uma foto da sua galeria ou escolha um avatar pronto abaixo.
+                  <div className="flex-1 overflow-hidden">
+                    <div className="flex items-center gap-2 justify-center sm:justify-start">
+                      <span
+                        className={`text-lg sm:text-xl font-bold truncate ${selectedFontObj.className}`}
+                        style={{ color: currentColor }}
+                      >
+                        {currentName || 'seu_nome'}
+                      </span>
+                      <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 shadow-sm" />
+                    </div>
+                    <p className="text-xs text-zinc-400 mt-1">
+                      Prévia de como os outros verão seu avatar e seu nome no chat!
                     </p>
 
                     <div className="flex flex-wrap gap-2 mt-3 justify-center sm:justify-start">
@@ -225,7 +267,111 @@ export default function UserSettingsModal({
                   </div>
                 </div>
 
-                {/* Galeria de Avatares Prontos */}
+                {/* 1. Nome de Usuário */}
+                <div>
+                  <label className="block text-xs font-bold uppercase tracking-wider text-zinc-400 mb-1.5">
+                    Nome de Usuário
+                  </label>
+                  <input
+                    type="text"
+                    value={currentName}
+                    onChange={(e) => setCurrentName(e.target.value)}
+                    placeholder="Seu nome ou apelido..."
+                    className="w-full rounded-xl px-4 py-3 text-sm text-white placeholder-zinc-500 focus:outline-none border transition"
+                    style={{
+                      backgroundColor: theme.bgInput,
+                      borderColor: theme.borderColor,
+                    }}
+                  />
+                  <span className="text-[11px] text-zinc-500 mt-1 block">
+                    Apenas letras, números e underline.
+                  </span>
+                </div>
+
+                {/* 2. Cor Personalizada do Nome */}
+                <div>
+                  <label className="block text-xs font-bold uppercase tracking-wider text-zinc-400 mb-2 flex items-center gap-1.5">
+                    <Droplet className="w-3.5 h-3.5" style={{ color: currentColor }} />
+                    Cor do Seu Nome no Chat
+                  </label>
+                  <div className="grid grid-cols-4 sm:grid-cols-8 gap-2 mb-2.5">
+                    {PRESET_NAME_COLORS.map((c) => (
+                      <button
+                        key={c.hex}
+                        onClick={() => setCurrentColor(c.hex)}
+                        className={`h-9 rounded-xl border-2 transition flex items-center justify-center relative ${
+                          currentColor.toLowerCase() === c.hex.toLowerCase()
+                            ? 'border-white scale-105 shadow-lg'
+                            : 'border-transparent hover:border-white/40'
+                        }`}
+                        style={{ backgroundColor: c.hex }}
+                        title={c.name}
+                      >
+                        {currentColor.toLowerCase() === c.hex.toLowerCase() && (
+                          <Check className="w-4 h-4 text-black stroke-[3]" />
+                        )}
+                      </button>
+                    ))}
+                  </div>
+
+                  <div className="flex items-center gap-2 mt-2">
+                    <span className="text-xs text-zinc-400">Ou escolha uma cor personalizada:</span>
+                    <div className="flex items-center gap-1.5 bg-black/30 px-2 py-1 rounded-lg border border-white/10">
+                      <input
+                        type="color"
+                        value={currentColor}
+                        onChange={(e) => setCurrentColor(e.target.value)}
+                        className="w-6 h-6 rounded cursor-pointer border-0 bg-transparent"
+                      />
+                      <span className="text-xs font-mono text-zinc-200 uppercase">{currentColor}</span>
+                    </div>
+                  </div>
+                </div>
+
+                {/* 3. Fonte do Nome */}
+                <div>
+                  <label className="block text-xs font-bold uppercase tracking-wider text-zinc-400 mb-2 flex items-center gap-1.5">
+                    <Type className="w-3.5 h-3.5" style={{ color: accent.hex }} />
+                    Fonte Estilizada para o Nome
+                  </label>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                    {FONT_OPTIONS.map((f) => {
+                      const isSelected = currentFont === f.id;
+                      return (
+                        <button
+                          key={f.id}
+                          onClick={() => setCurrentFont(f.id)}
+                          className={`p-3 rounded-xl border text-left transition flex items-center justify-between ${
+                            isSelected
+                              ? 'border-white bg-white/10 shadow-md'
+                              : 'border-white/5 hover:border-white/20 hover:bg-white/5'
+                          }`}
+                          style={{ backgroundColor: isSelected ? undefined : theme.bgInput }}
+                        >
+                          <div>
+                            <div className="text-[11px] text-zinc-400 mb-1">{f.name}</div>
+                            <div
+                              className={`text-base font-bold truncate ${f.className}`}
+                              style={{ color: currentColor }}
+                            >
+                              {currentName || f.preview}
+                            </div>
+                          </div>
+                          {isSelected && (
+                            <span
+                              className="w-5 h-5 rounded-full flex items-center justify-center text-white"
+                              style={{ backgroundColor: accent.hex }}
+                            >
+                              <Check className="w-3 h-3 stroke-[3]" />
+                            </span>
+                          )}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                {/* 4. Avatares Prontos */}
                 <div>
                   <label className="block text-xs font-bold uppercase tracking-wider text-zinc-400 mb-2 flex items-center gap-1.5">
                     <Sparkles className="w-3.5 h-3.5" style={{ color: accent.hex }} />
@@ -259,27 +405,6 @@ export default function UserSettingsModal({
                       </button>
                     ))}
                   </div>
-                </div>
-
-                {/* Nome de Usuário */}
-                <div>
-                  <label className="block text-xs font-bold uppercase tracking-wider text-zinc-400 mb-2">
-                    Nome de Usuário
-                  </label>
-                  <input
-                    type="text"
-                    value={currentName}
-                    onChange={(e) => setCurrentName(e.target.value)}
-                    placeholder="Seu nome ou apelido..."
-                    className="w-full rounded-xl px-4 py-3 text-sm text-white placeholder-zinc-500 focus:outline-none border transition"
-                    style={{
-                      backgroundColor: theme.bgInput,
-                      borderColor: theme.borderColor,
-                    }}
-                  />
-                  <span className="text-[11px] text-zinc-500 mt-1 block">
-                    Apenas letras, números e underline.
-                  </span>
                 </div>
               </div>
             ) : (
@@ -345,7 +470,7 @@ export default function UserSettingsModal({
                   </div>
                 </div>
 
-                {/* Seletor de Cores de Destaque (Accent Colors) */}
+                {/* Seletor de Cores de Destaque */}
                 <div>
                   <label className="block text-xs font-bold uppercase tracking-wider text-zinc-400 mb-3">
                     Cor de Destaque dos Botões & Detalhes
@@ -378,7 +503,7 @@ export default function UserSettingsModal({
                   </div>
                 </div>
 
-                {/* Demonstração / Preview em Tempo Real */}
+                {/* Demonstração em Tempo Real */}
                 <div>
                   <label className="block text-xs font-bold uppercase tracking-wider text-zinc-400 mb-2">
                     Pré-visualização do Tema no Chat
@@ -390,7 +515,7 @@ export default function UserSettingsModal({
                     <div className="flex items-start gap-2.5">
                       <div
                         className="w-8 h-8 rounded-full overflow-hidden flex-shrink-0 border"
-                        style={{ borderColor: accent.hex, backgroundColor: theme.bgCard }}
+                        style={{ borderColor: currentColor, backgroundColor: theme.bgCard }}
                       >
                         {currentAvatar ? (
                           <img src={currentAvatar} alt="preview" className="w-full h-full object-cover" />
@@ -402,7 +527,10 @@ export default function UserSettingsModal({
                       </div>
                       <div>
                         <div className="flex items-center gap-2">
-                          <span className="text-xs font-black" style={{ color: accent.hex }}>
+                          <span
+                            className={`text-xs font-black ${selectedFontObj.className}`}
+                            style={{ color: currentColor }}
+                          >
                             {currentName || 'lucas'}
                           </span>
                           <span className="text-[10px] text-zinc-500">Hoje às 14:30</span>

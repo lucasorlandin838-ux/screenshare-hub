@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import Peer, { MediaConnection, DataConnection } from 'peerjs';
-import { ChatMessage, CallState } from '../types';
+import { ChatMessage, CallState, ChatAttachment } from '../types';
 
 export function sanitizePeerId(name: string): string {
   return 'hub_' + name.toLowerCase().trim().replace(/[^a-z0-9_]/g, '');
@@ -70,7 +70,12 @@ const ICE_SERVERS: RTCIceServer[] = [
   },
 ];
 
-export function usePeerCall(username: string | null, avatar?: string) {
+export function usePeerCall(
+  username: string | null,
+  avatar?: string,
+  nameFont?: string,
+  nameColor?: string
+) {
   const [actualPeerId, setActualPeerId] = useState<string>('');
   const [connectionStatus, setConnectionStatus] = useState<'connecting' | 'connected' | 'error'>('connecting');
   const [callError, setCallError] = useState<string | null>(null);
@@ -81,6 +86,8 @@ export function usePeerCall(username: string | null, avatar?: string) {
     isCaller: false,
     peerUsername: '',
     peerAvatar: undefined,
+    peerNameFont: undefined,
+    peerNameColor: undefined,
     incoming: false,
     isScreenSharing: false,
     micMuted: false,
@@ -91,7 +98,6 @@ export function usePeerCall(username: string | null, avatar?: string) {
   const [localStream, setLocalStream] = useState<MediaStream | null>(null);
   const [remoteStream, setRemoteStream] = useState<MediaStream | null>(null);
 
-  // Inicializa mensagens persistidas no navegador
   const [messages, setMessages] = useState<ChatMessage[]>(() => {
     try {
       return JSON.parse(localStorage.getItem('hub_chat_messages') || '[]');
@@ -108,14 +114,12 @@ export function usePeerCall(username: string | null, avatar?: string) {
   const isScreenSharingRef = useRef(false);
   const ringIntervalRef = useRef<any>(null);
 
-  // Salva histórico de mensagens localmente
   useEffect(() => {
     try {
       localStorage.setItem('hub_chat_messages', JSON.stringify(messages.slice(-200)));
     } catch {}
   }, [messages]);
 
-  // Inicializa o PeerJS com tratamento de ID ocupado
   useEffect(() => {
     if (!username) return;
 
@@ -139,7 +143,7 @@ export function usePeerCall(username: string | null, avatar?: string) {
 
       peer.on('open', (id) => {
         if (!isSubscribed) return;
-        console.log('[PeerJS] Conectado e registrado no servidor:', id);
+        console.log('[PeerJS] Conectado e registrado:', id);
         setActualPeerId(id);
         setConnectionStatus('connected');
         setCallError(null);
@@ -150,7 +154,6 @@ export function usePeerCall(username: string | null, avatar?: string) {
         peer.reconnect();
       });
 
-      // Receber chamada
       peer.on('call', (incomingCall) => {
         console.log('[PeerJS] Chamada recebida de:', incomingCall.peer);
         const callerName = incomingCall.peer.replace('hub_', '').split('_')[0];
@@ -168,25 +171,23 @@ export function usePeerCall(username: string | null, avatar?: string) {
         ringIntervalRef.current = setInterval(playRingBeep, 2200);
       });
 
-      // Receber canal de dados (chat / sinais)
       peer.on('connection', (conn) => {
         dataConnRef.current = conn;
         setupDataConnection(conn);
       });
 
       peer.on('error', (err) => {
-        console.warn('[PeerJS] Erro do servidor:', err.type, err.message);
+        console.warn('[PeerJS] Erro:', err.type, err.message);
         if (err.type === 'unavailable-id') {
           peer.destroy();
           const suffix = Math.floor(100 + Math.random() * 900);
           const nextId = 'hub_' + cleanBase + '_' + suffix;
-          console.log('[PeerJS] ID ocupado. Tentando ID alternativo:', nextId);
           initPeer(nextId);
           return;
         }
 
         if (err.type === 'peer-unavailable') {
-          setCallError('Usuário não encontrado ou offline. Peça para ele abrir o site!');
+          setCallError('Usuário offline ou não encontrado. Peça para ele abrir o site!');
           cleanupCall();
         } else {
           setConnectionStatus('error');
@@ -208,12 +209,13 @@ export function usePeerCall(username: string | null, avatar?: string) {
 
   const setupDataConnection = useCallback((conn: DataConnection) => {
     conn.on('open', () => {
-      console.log('[PeerJS] Canal de dados conectado com:', conn.peer);
-      // Envia nosso avatar e perfil assim que conecta
+      console.log('[PeerJS] Conectado ao canal de dados:', conn.peer);
       conn.send({
         type: 'profile-sync',
         sender: username,
         avatar: avatar,
+        nameFont: nameFont,
+        nameColor: nameColor,
       });
     });
 
@@ -225,18 +227,21 @@ export function usePeerCall(username: string | null, avatar?: string) {
             id: String(Date.now()) + Math.random(),
             sender: data.sender,
             avatar: data.avatar,
+            nameFont: data.nameFont,
+            nameColor: data.nameColor,
             channelId: data.channelId,
             content: data.content,
+            file: data.file,
             time: data.time || new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }),
           },
         ]);
       } else if (data?.type === 'profile-sync') {
-        if (data.avatar) {
-          setCallState((prev) => ({
-            ...prev,
-            peerAvatar: data.avatar,
-          }));
-        }
+        setCallState((prev) => ({
+          ...prev,
+          peerAvatar: data.avatar || prev.peerAvatar,
+          peerNameFont: data.nameFont || prev.peerNameFont,
+          peerNameColor: data.nameColor || prev.peerNameColor,
+        }));
       } else if (data?.type === 'call-end') {
         cleanupCall();
       } else if (data?.type === 'screen-share') {
@@ -245,9 +250,9 @@ export function usePeerCall(username: string | null, avatar?: string) {
     });
 
     conn.on('close', () => {
-      console.log('[PeerJS] Canal de dados desconectado');
+      console.log('[PeerJS] Canal desconectado');
     });
-  }, [username, avatar]);
+  }, [username, avatar, nameFont, nameColor]);
 
   const getMedia = useCallback(async () => {
     let stream: MediaStream;
@@ -265,14 +270,12 @@ export function usePeerCall(username: string | null, avatar?: string) {
       });
       camTrackRef.current = stream.getVideoTracks()[0];
     } catch (e) {
-      console.warn('[Mídia] Câmera indisponível ou bloqueada. Criando faixa virtual:', e);
       try {
         stream = await navigator.mediaDevices.getUserMedia({
           audio: { echoCancellation: true, noiseSuppression: true },
           video: false,
         });
       } catch (err) {
-        console.warn('[Mídia] Microfone não permitido:', err);
         stream = new MediaStream();
       }
       const blankTrack = createBlankVideoTrack();
@@ -299,7 +302,6 @@ export function usePeerCall(username: string | null, avatar?: string) {
     });
   }, []);
 
-  // Iniciar chamada direta
   const callUser = useCallback(
     async (targetUsername: string, targetAvatar?: string) => {
       if (!peerRef.current || !username) return;
@@ -309,7 +311,6 @@ export function usePeerCall(username: string | null, avatar?: string) {
       if (!cleanTarget) return;
 
       const targetId = 'hub_' + cleanTarget;
-      console.log('[PeerJS] Ligando para:', targetId);
 
       try {
         const stream = await getMedia();
@@ -338,13 +339,12 @@ export function usePeerCall(username: string | null, avatar?: string) {
 
         call.on('close', () => cleanupCall());
         call.on('error', (e) => {
-          console.warn('[PeerJS] Erro ao ligar para o par:', e);
+          console.warn('[PeerJS] Erro chamada:', e);
           setCallError('O usuário "' + targetUsername + '" não atendeu ou está offline.');
           cleanupCall();
         });
       } catch (err) {
-        console.error('[PeerJS] Erro ao iniciar chamada:', err);
-        setCallError('Erro ao acessar microfone/câmera. Verifique as permissões!');
+        setCallError('Erro ao acessar microfone/câmera.');
       }
     },
     [username, getMedia, setupDataConnection, handleRemoteStream]
@@ -369,7 +369,6 @@ export function usePeerCall(username: string | null, avatar?: string) {
         setupDataConnection(conn);
       }
 
-      console.log('[PeerJS] Atendendo chamada de:', currentCallRef.current.peer);
       currentCallRef.current.answer(stream);
 
       setCallState((prev) => ({
@@ -384,11 +383,9 @@ export function usePeerCall(username: string | null, avatar?: string) {
 
       currentCallRef.current.on('close', () => cleanupCall());
       currentCallRef.current.on('error', (e) => {
-        console.warn('[PeerJS] Erro na conexão:', e);
         cleanupCall();
       });
     } catch (err) {
-      console.error('[PeerJS] Erro ao atender:', err);
       setCallError('Erro ao acessar microfone/câmera ao atender.');
     }
   }, [getMedia, setupDataConnection, handleRemoteStream]);
@@ -439,6 +436,8 @@ export function usePeerCall(username: string | null, avatar?: string) {
       isCaller: false,
       peerUsername: '',
       peerAvatar: undefined,
+      peerNameFont: undefined,
+      peerNameColor: undefined,
       incoming: false,
       isScreenSharing: false,
       micMuted: false,
@@ -452,7 +451,6 @@ export function usePeerCall(username: string | null, avatar?: string) {
       const cleanRoom = roomName.toLowerCase().trim().replace(/[^a-z0-9_]/g, '');
       if (!cleanRoom) return;
 
-      console.log('[Room] Entrando na sala:', cleanRoom);
       setCurrentRoom(cleanRoom);
       setCallError(null);
       callUser(cleanRoom);
@@ -520,7 +518,7 @@ export function usePeerCall(username: string | null, avatar?: string) {
 
         dataConnRef.current?.send({ type: 'screen-share', isSharing: true });
       } catch (err) {
-        console.warn('[ScreenShare] Cancelado ou erro ao capturar tela:', err);
+        console.warn('[ScreenShare] Cancelado:', err);
       }
     }
   }, []);
@@ -543,17 +541,22 @@ export function usePeerCall(username: string | null, avatar?: string) {
     }
   }, []);
 
-  // Enviar mensagem (suporta texto geral e canais específicos)
+  // Enviar mensagem com suporte a arquivos anexados, fonte e cor do nome
   const sendMessage = useCallback(
-    (content: string, channelId?: string) => {
-      if (!content.trim() || !username) return;
+    (content: string, channelId?: string, file?: ChatAttachment) => {
+      if (!content.trim() && !file) return;
+      if (!username) return;
+
       const timeStr = new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
       const msg: ChatMessage = {
         id: String(Date.now()) + Math.random(),
         sender: username,
         avatar: avatar,
+        nameFont: nameFont,
+        nameColor: nameColor,
         channelId: channelId,
         content: content.trim(),
+        file: file,
         time: timeStr,
       };
 
@@ -564,13 +567,16 @@ export function usePeerCall(username: string | null, avatar?: string) {
           type: 'chat',
           sender: username,
           avatar: avatar,
+          nameFont: nameFont,
+          nameColor: nameColor,
           channelId: channelId,
           content: content.trim(),
+          file: file,
           time: timeStr,
         });
       }
     },
-    [username, avatar]
+    [username, avatar, nameFont, nameColor]
   );
 
   return {
