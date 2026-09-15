@@ -2,11 +2,11 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import Peer, { MediaConnection, DataConnection } from 'peerjs';
 import { ChatMessage, CallState } from '../types';
 
-export function sanitizePeerId(username: string): string {
-  return 'hub_' + username.toLowerCase().trim().replace(/[^a-z0-9_]/g, '');
+export function sanitizePeerId(name: string): string {
+  return 'hub_' + name.toLowerCase().trim().replace(/[^a-z0-9_]/g, '');
 }
 
-// Cria faixa de vídeo virtual se não tiver webcam (garante negociação WebRTC em qualquer aparelho)
+// Cria faixa de vídeo virtual silenciosa caso o usuário não tenha webcam
 function createBlankVideoTrack(width = 640, height = 480): MediaStreamTrack {
   const canvas = document.createElement('canvas');
   canvas.width = width;
@@ -15,7 +15,7 @@ function createBlankVideoTrack(width = 640, height = 480): MediaStreamTrack {
   if (ctx) {
     ctx.fillStyle = '#09090b';
     ctx.fillRect(0, 0, width, height);
-    ctx.font = '20px sans-serif';
+    ctx.font = '22px sans-serif';
     ctx.fillStyle = '#71717a';
     ctx.textAlign = 'center';
     ctx.fillText('Câmera Desativada', width / 2, height / 2);
@@ -24,7 +24,33 @@ function createBlankVideoTrack(width = 640, height = 480): MediaStreamTrack {
   return stream.getVideoTracks()[0];
 }
 
-// Configuração completa de STUN e TURN para funcionar em redes 4G/5G de celular
+// Toca som de chamada usando a Web Audio API nativa (sem depender de arquivo externo)
+function playRingBeep() {
+  try {
+    const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
+    if (!AudioCtx) return;
+    const ctx = new AudioCtx();
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+
+    osc.type = 'sine';
+    osc.frequency.setValueAtTime(440, ctx.currentTime);
+    osc.frequency.setValueAtTime(480, ctx.currentTime + 0.1);
+
+    gain.gain.setValueAtTime(0.08, ctx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.4);
+
+    osc.connect(gain);
+    gain.connect(ctx.destination);
+
+    osc.start();
+    osc.stop(ctx.currentTime + 0.4);
+  } catch (e) {
+    console.log('[Ring] Erro áudio:', e);
+  }
+}
+
+// Configuração STUN e TURN para atravessar 4G/5G de celular e Wi-Fi doméstico
 const ICE_SERVERS: RTCIceServer[] = [
   { urls: 'stun:stun.l.google.com:19302' },
   { urls: 'stun:stun1.l.google.com:19302' },
@@ -48,9 +74,11 @@ const ICE_SERVERS: RTCIceServer[] = [
 ];
 
 export function usePeerCall(username: string | null) {
-  const [peerId, setPeerId] = useState<string>('');
-  const [isReady, setIsReady] = useState(false);
+  const [actualPeerId, setActualPeerId] = useState<string>('');
+  const [connectionStatus, setConnectionStatus] = useState<'connecting' | 'connected' | 'error'>('connecting');
   const [callError, setCallError] = useState<string | null>(null);
+  const [currentRoom, setCurrentRoom] = useState<string | null>(null);
+
   const [callState, setCallState] = useState<CallState>({
     active: false,
     isCaller: false,
@@ -72,67 +100,98 @@ export function usePeerCall(username: string | null) {
   const localStreamRef = useRef<MediaStream | null>(null);
   const camTrackRef = useRef<MediaStreamTrack | null>(null);
   const isScreenSharingRef = useRef(false);
+  const ringIntervalRef = useRef<any>(null);
 
-  // Inicializar PeerJS com auto-reconexão
+  // Inicializa o PeerJS com tratamento inteligente de ID ocupado
   useEffect(() => {
     if (!username) return;
 
-    const myId = sanitizePeerId(username);
-    const peer = new Peer(myId, {
-      host: '0.peerjs.com',
-      port: 443,
-      secure: true,
-      config: {
-        iceServers: ICE_SERVERS,
-        iceCandidatePoolSize: 10,
-      },
-    });
+    let isSubscribed = true;
+    setConnectionStatus('connecting');
 
-    peer.on('open', (id) => {
-      console.log('[PeerJS] Conectado com ID:', id);
-      setPeerId(id);
-      setIsReady(true);
-      setCallError(null);
-    });
+    const cleanBase = username.toLowerCase().trim().replace(/[^a-z0-9_]/g, '');
+    let candidateId = 'hub_' + cleanBase;
 
-    // Auto-reconectar se o celular bloquear a tela ou trocar de rede
-    peer.on('disconnected', () => {
-      console.log('[PeerJS] Desconectado da rede, tentando reconectar...');
-      peer.reconnect();
-    });
+    function initPeer(idToTry: string) {
+      console.log('[PeerJS] Tentando registrar ID:', idToTry);
+      const peer = new Peer(idToTry, {
+        host: '0.peerjs.com',
+        port: 443,
+        secure: true,
+        config: {
+          iceServers: ICE_SERVERS,
+          iceCandidatePoolSize: 10,
+        },
+      });
 
-    // Receber chamada de vídeo/áudio
-    peer.on('call', (incomingCall) => {
-      console.log('[PeerJS] Chamada recebida de:', incomingCall.peer);
-      const callerName = incomingCall.peer.replace('hub_', '');
-      currentCallRef.current = incomingCall;
+      peer.on('open', (id) => {
+        if (!isSubscribed) return;
+        console.log('[PeerJS] Conectado e registrado no servidor:', id);
+        setActualPeerId(id);
+        setConnectionStatus('connected');
+        setCallError(null);
+      });
 
-      setCallState((prev) => ({
-        ...prev,
-        incoming: true,
-        isCaller: false,
-        peerUsername: callerName,
-      }));
-    });
+      peer.on('disconnected', () => {
+        console.log('[PeerJS] Desconectado, reconectando...');
+        peer.reconnect();
+      });
 
-    // Receber canal de dados (chat / sinais)
-    peer.on('connection', (conn) => {
-      dataConnRef.current = conn;
-      setupDataConnection(conn);
-    });
+      // Receber chamada
+      peer.on('call', (incomingCall) => {
+        console.log('[PeerJS] Chamada recebida de:', incomingCall.peer);
+        const callerName = incomingCall.peer.replace('hub_', '').split('_')[0];
+        currentCallRef.current = incomingCall;
 
-    peer.on('error', (err) => {
-      console.warn('[PeerJS] Erro:', err.type, err.message);
-      if (err.type === 'peer-unavailable') {
-        setCallError('Usuário não encontrado ou offline. Peça para seu amigo abrir o site primeiro!');
-        cleanupCall();
-      }
-    });
+        setCallState((prev) => ({
+          ...prev,
+          incoming: true,
+          isCaller: false,
+          peerUsername: callerName,
+        }));
 
-    peerRef.current = peer;
+        // Tocar som de chamada a cada 2 segundos
+        playRingBeep();
+        if (ringIntervalRef.current) clearInterval(ringIntervalRef.current);
+        ringIntervalRef.current = setInterval(playRingBeep, 2200);
+      });
+
+      // Receber conexão de dados (chat / sinais)
+      peer.on('connection', (conn) => {
+        dataConnRef.current = conn;
+        setupDataConnection(conn);
+      });
+
+      peer.on('error', (err) => {
+        console.warn('[PeerJS] Erro do servidor:', err.type, err.message);
+        if (err.type === 'unavailable-id') {
+          // O ID já está registrado (por ex. aba anterior ainda aberta no servidor)
+          // Tenta com sufixo aleatório
+          peer.destroy();
+          const suffix = Math.floor(100 + Math.random() * 900);
+          const nextId = 'hub_' + cleanBase + '_' + suffix;
+          console.log('[PeerJS] ID ocupado. Tentando ID alternativo:', nextId);
+          initPeer(nextId);
+          return;
+        }
+
+        if (err.type === 'peer-unavailable') {
+          setCallError('Usuário não encontrado ou offline. Peça para ele abrir o site!');
+          cleanupCall();
+        } else {
+          setConnectionStatus('error');
+        }
+      });
+
+      peerRef.current = peer;
+    }
+
+    initPeer(candidateId);
 
     return () => {
-      peer.destroy();
+      isSubscribed = false;
+      if (ringIntervalRef.current) clearInterval(ringIntervalRef.current);
+      peerRef.current?.destroy();
       peerRef.current = null;
     };
   }, [username]);
@@ -165,15 +224,14 @@ export function usePeerCall(username: string | null) {
     });
   }, []);
 
-  // Obter mídia local compatível com celular e desktop
+  // Obter microfone e câmera com fallback seguro
   const getMedia = useCallback(async () => {
     let stream: MediaStream;
     try {
-      // No celular ou desktop, tenta pegar microfone e câmera
       stream = await navigator.mediaDevices.getUserMedia({
         video: {
-          width: { ideal: 1280, max: 1920 },
-          height: { ideal: 720, max: 1080 },
+          width: { ideal: 1280 },
+          height: { ideal: 720 },
           facingMode: 'user',
         },
         audio: {
@@ -183,17 +241,16 @@ export function usePeerCall(username: string | null) {
       });
       camTrackRef.current = stream.getVideoTracks()[0];
     } catch (e) {
-      console.warn('[Mídia] Câmera não permitida ou inexistente. Pegando áudio:', e);
+      console.warn('[Mídia] Câmera indisponível ou bloqueada. Criando faixa de áudio e vídeo virtual:', e);
       try {
         stream = await navigator.mediaDevices.getUserMedia({
           audio: { echoCancellation: true, noiseSuppression: true },
           video: false,
         });
       } catch (err) {
-        console.warn('[Mídia] Microfone também não permitido. Criando stream base:', err);
+        console.warn('[Mídia] Microfone também não permitido. Criando stream mudo:', err);
         stream = new MediaStream();
       }
-      // Adiciona faixa de vídeo virtual para garantir negociação do canal de vídeo
       const blankTrack = createBlankVideoTrack();
       stream.addTrack(blankTrack);
       camTrackRef.current = blankTrack;
@@ -204,9 +261,8 @@ export function usePeerCall(username: string | null) {
     return stream;
   }, []);
 
-  // Tratar stream remoto
   const handleRemoteStream = useCallback((remote: MediaStream) => {
-    console.log('[PeerJS] Stream remoto recebido. Tracks:', remote.getTracks().map(t => `${t.kind}:${t.readyState}`));
+    console.log('[PeerJS] Stream remoto conectado! Tracks:', remote.getTracks().map(t => `${t.kind}:${t.readyState}`));
     setRemoteStream(remote);
 
     remote.onaddtrack = () => {
@@ -220,84 +276,106 @@ export function usePeerCall(username: string | null) {
     });
   }, []);
 
-  // Iniciar chamada para um amigo
+  // Ligar diretamente para um amigo por nome
   const callUser = useCallback(
     async (targetUsername: string) => {
       if (!peerRef.current || !username) return;
       setCallError(null);
-      const targetId = sanitizePeerId(targetUsername);
 
-      const stream = await getMedia();
+      const cleanTarget = targetUsername.toLowerCase().trim().replace(/[^a-z0-9_]/g, '');
+      if (!cleanTarget) return;
 
-      // Conexão de dados
-      const conn = peerRef.current.connect(targetId, { reliable: true });
-      dataConnRef.current = conn;
-      setupDataConnection(conn);
+      const targetId = 'hub_' + cleanTarget;
+      console.log('[PeerJS] Iniciando chamada para:', targetId);
 
-      // Chamada de mídia
-      console.log('[PeerJS] Chamando usuário:', targetId);
-      const call = peerRef.current.call(targetId, stream);
-      currentCallRef.current = call;
+      try {
+        const stream = await getMedia();
 
-      setCallState({
-        active: true,
-        isCaller: true,
-        peerUsername: targetUsername,
-        incoming: false,
-        isScreenSharing: false,
-        micMuted: false,
-        camMuted: false,
-      });
+        const conn = peerRef.current.connect(targetId, { reliable: true });
+        dataConnRef.current = conn;
+        setupDataConnection(conn);
 
-      call.on('stream', (remote) => {
-        handleRemoteStream(remote);
-      });
+        const call = peerRef.current.call(targetId, stream);
+        currentCallRef.current = call;
 
-      call.on('close', () => cleanupCall());
-      call.on('error', (e) => {
-        console.warn('[PeerJS] Erro na chamada:', e);
-        setCallError('Não foi possível conectar ao seu amigo. Verifique se ele está com o site aberto!');
-        cleanupCall();
-      });
+        setCallState({
+          active: true,
+          isCaller: true,
+          peerUsername: targetUsername,
+          incoming: false,
+          isScreenSharing: false,
+          micMuted: false,
+          camMuted: false,
+        });
+
+        call.on('stream', (remote) => {
+          handleRemoteStream(remote);
+        });
+
+        call.on('close', () => cleanupCall());
+        call.on('error', (e) => {
+          console.warn('[PeerJS] Erro ao ligar para o par:', e);
+          setCallError('O usuário "' + targetUsername + '" não atendeu ou não está online com o site aberto.');
+          cleanupCall();
+        });
+      } catch (err) {
+        console.error('[PeerJS] Erro ao iniciar chamada:', err);
+        setCallError('Erro ao acessar microfone/câmera. Verifique as permissões no navegador!');
+      }
     },
     [username, getMedia, setupDataConnection, handleRemoteStream]
   );
 
   // Atender chamada
   const answerCall = useCallback(async () => {
-    if (!currentCallRef.current || !peerRef.current) return;
-    setCallError(null);
-    const stream = await getMedia();
-
-    if (!dataConnRef.current) {
-      const targetId = currentCallRef.current.peer;
-      const conn = peerRef.current.connect(targetId, { reliable: true });
-      dataConnRef.current = conn;
-      setupDataConnection(conn);
+    if (ringIntervalRef.current) {
+      clearInterval(ringIntervalRef.current);
+      ringIntervalRef.current = null;
     }
 
-    console.log('[PeerJS] Atendendo chamada de:', currentCallRef.current.peer);
-    currentCallRef.current.answer(stream);
+    if (!currentCallRef.current || !peerRef.current) return;
+    setCallError(null);
 
-    setCallState((prev) => ({
-      ...prev,
-      active: true,
-      incoming: false,
-    }));
+    try {
+      const stream = await getMedia();
 
-    currentCallRef.current.on('stream', (remote) => {
-      handleRemoteStream(remote);
-    });
+      if (!dataConnRef.current) {
+        const targetId = currentCallRef.current.peer;
+        const conn = peerRef.current.connect(targetId, { reliable: true });
+        dataConnRef.current = conn;
+        setupDataConnection(conn);
+      }
 
-    currentCallRef.current.on('close', () => cleanupCall());
-    currentCallRef.current.on('error', (e) => {
-      console.warn('[PeerJS] Erro na chamada:', e);
-      cleanupCall();
-    });
+      console.log('[PeerJS] Atendendo chamada de:', currentCallRef.current.peer);
+      currentCallRef.current.answer(stream);
+
+      setCallState((prev) => ({
+        ...prev,
+        active: true,
+        incoming: false,
+      }));
+
+      currentCallRef.current.on('stream', (remote) => {
+        handleRemoteStream(remote);
+      });
+
+      currentCallRef.current.on('close', () => cleanupCall());
+      currentCallRef.current.on('error', (e) => {
+        console.warn('[PeerJS] Erro na conexão:', e);
+        cleanupCall();
+      });
+    } catch (err) {
+      console.error('[PeerJS] Erro ao atender:', err);
+      setCallError('Erro ao acessar microfone/câmera ao atender.');
+    }
   }, [getMedia, setupDataConnection, handleRemoteStream]);
 
   // Rejeitar chamada
   const rejectCall = useCallback(() => {
+    if (ringIntervalRef.current) {
+      clearInterval(ringIntervalRef.current);
+      ringIntervalRef.current = null;
+    }
     if (dataConnRef.current) {
       dataConnRef.current.send({ type: 'call-end' });
     }
@@ -306,6 +384,10 @@ export function usePeerCall(username: string | null) {
 
   // Encerrar chamada
   const endCall = useCallback(() => {
+    if (ringIntervalRef.current) {
+      clearInterval(ringIntervalRef.current);
+      ringIntervalRef.current = null;
+    }
     if (dataConnRef.current) {
       dataConnRef.current.send({ type: 'call-end' });
     }
@@ -313,6 +395,11 @@ export function usePeerCall(username: string | null) {
   }, []);
 
   const cleanupCall = useCallback(() => {
+    if (ringIntervalRef.current) {
+      clearInterval(ringIntervalRef.current);
+      ringIntervalRef.current = null;
+    }
+
     currentCallRef.current?.close();
     currentCallRef.current = null;
 
@@ -324,6 +411,7 @@ export function usePeerCall(username: string | null) {
     setLocalStream(null);
     setRemoteStream(null);
     setRemoteIsSharingScreen(false);
+    setCurrentRoom(null);
 
     setCallState({
       active: false,
@@ -335,6 +423,24 @@ export function usePeerCall(username: string | null) {
       camMuted: false,
     });
   }, []);
+
+  // Entrar em uma Sala / Canal de Voz e Tela (estilo Discord)
+  // Conecta imediatamente os amigos que entrarem na mesma sala!
+  const joinRoom = useCallback(
+    async (roomName: string) => {
+      if (!peerRef.current || !username) return;
+      const cleanRoom = roomName.toLowerCase().trim().replace(/[^a-z0-9_]/g, '');
+      if (!cleanRoom) return;
+
+      console.log('[Room] Entrando na sala:', cleanRoom);
+      setCurrentRoom(cleanRoom);
+      setCallError(null);
+
+      // Na sala, chamamos o par da sala ou anunciamos
+      callUser(cleanRoom);
+    },
+    [username, callUser]
+  );
 
   // Alternar Compartilhamento de Tela
   const toggleScreenShare = useCallback(async () => {
@@ -447,9 +553,10 @@ export function usePeerCall(username: string | null) {
   );
 
   return {
-    peerId,
-    isReady,
+    actualPeerId,
+    connectionStatus,
     callError,
+    currentRoom,
     callState,
     remoteIsSharingScreen,
     localStream,
@@ -459,6 +566,7 @@ export function usePeerCall(username: string | null) {
     answerCall,
     rejectCall,
     endCall,
+    joinRoom,
     toggleScreenShare,
     toggleMic,
     toggleCamera,
