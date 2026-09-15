@@ -26,7 +26,9 @@ import DirectMessageChat from '../components/DirectMessageChat';
 import VoiceRoomPanel from '../components/VoiceRoomPanel';
 import UserSettingsModal, { FONT_OPTIONS } from '../components/UserSettingsModal';
 import { useTheme } from '../context/ThemeContext';
-import { Friend, TextChannel, VoiceChannel, ActiveView } from '../types';
+import { Friend, TextChannel, VoiceChannel, ActiveView, CustomGroup } from '../types';
+import GroupChatView from '../components/GroupChatView';
+import CreateGroupModal from '../components/CreateGroupModal';
 
 const TEXT_CHANNELS: TextChannel[] = [
   { id: 'geral', name: 'geral', desc: 'Canal principal para conversar com a galera' },
@@ -83,6 +85,14 @@ export default function Home() {
   const [targetCallUser, setTargetCallUser] = useState('');
   const [isCallingNow, setIsCallingNow] = useState(false);
   const [showDirectCallModal, setShowDirectCallModal] = useState(false);
+  const [customGroups, setCustomGroups] = useState<CustomGroup[]>(() => {
+    try {
+      return JSON.parse(localStorage.getItem('hub_custom_groups') || '[]');
+    } catch {
+      return [];
+    }
+  });
+  const [createGroupOpen, setCreateGroupOpen] = useState(false);
 
   const {
     actualPeerId,
@@ -107,6 +117,11 @@ export default function Home() {
     toggleCamera,
     sendMessage,
     sendDirectMessage,
+    lastPlayedSound,
+    incomingGroupCall,
+    playSoundboard,
+    sendGroupMessage,
+    startGroupCall,
   } = usePeerCall(username, avatar, nameFont, nameColor);
 
   // Verifica status de cada amigo salvo a cada 30 segundos
@@ -210,6 +225,54 @@ export default function Home() {
     setShowDirectCallModal(false);
   };
 
+  const handleCreateGroup = (newGroup: CustomGroup) => {
+    const updated = [...customGroups, newGroup];
+    setCustomGroups(updated);
+    try {
+      localStorage.setItem('hub_custom_groups', JSON.stringify(updated));
+    } catch {}
+    setActiveView({ type: 'group', groupId: newGroup.id });
+  };
+
+  const handleAddMemberToGroup = (groupId: string, memberUsername: string) => {
+    const updated = customGroups.map((g) =>
+      g.id === groupId
+        ? { ...g, members: Array.from(new Set([...g.members, memberUsername.toLowerCase()])) }
+        : g
+    );
+    setCustomGroups(updated);
+    try {
+      localStorage.setItem('hub_custom_groups', JSON.stringify(updated));
+    } catch {}
+  };
+
+  const handleRemoveMemberFromGroup = (groupId: string, memberUsername: string) => {
+    const updated = customGroups.map((g) =>
+      g.id === groupId
+        ? { ...g, members: g.members.filter((m) => m.toLowerCase() !== memberUsername.toLowerCase()) }
+        : g
+    );
+    setCustomGroups(updated);
+    try {
+      localStorage.setItem('hub_custom_groups', JSON.stringify(updated));
+    } catch {}
+  };
+
+  const handleLeaveGroup = (groupId: string) => {
+    const updated = customGroups.filter((g) => g.id !== groupId);
+    setCustomGroups(updated);
+    try {
+      localStorage.setItem('hub_custom_groups', JSON.stringify(updated));
+    } catch {}
+    setActiveView({ type: 'channel', id: 'geral' });
+  };
+
+  const handleStartGroupCall = (group: CustomGroup) => {
+    setIsCallingNow(true);
+    startGroupCall(group);
+    setTimeout(() => setIsCallingNow(false), 2000);
+  };
+
   const currentFontObj = FONT_OPTIONS.find((f) => f.id === nameFont) || FONT_OPTIONS[0];
 
   if (!username) {
@@ -294,6 +357,9 @@ export default function Home() {
       ? VOICE_CHANNELS.find((v) => v.id === activeView.roomId) || VOICE_CHANNELS[0]
       : VOICE_CHANNELS[0];
 
+  const activeGroup = customGroups.find(
+    (g) => activeView.type === 'group' && g.id === activeView.groupId
+  );
   const activeDMFriend =
     activeView.type === 'dm'
       ? friends.find((f) => f.username.toLowerCase() === activeView.friendUsername.toLowerCase())
@@ -598,6 +664,94 @@ export default function Home() {
             )}
           </div>
 
+          
+          {/* SEÇÃO NOVA: GRUPOS (ESTILO DISCORD) */}
+          <div>
+            <div className="px-2 mb-1.5 flex items-center justify-between">
+              <span className="text-[11px] font-black uppercase tracking-wider text-zinc-400 flex items-center gap-1.5">
+                <Users className="w-3.5 h-3.5 text-indigo-400" /> Meus Grupos
+              </span>
+              <button
+                onClick={() => setCreateGroupOpen(true)}
+                className="text-[10px] text-indigo-400 hover:text-indigo-300 font-bold flex items-center gap-0.5"
+                title="Criar novo grupo estilo Discord"
+              >
+                <Plus className="w-3 h-3" /> Criar Grupo
+              </button>
+            </div>
+
+            {customGroups.length === 0 ? (
+              <div
+                onClick={() => setCreateGroupOpen(true)}
+                className="p-2 rounded-xl border border-dashed text-center text-xs cursor-pointer hover:bg-white/5 transition"
+                style={{ borderColor: theme.borderColor }}
+              >
+                <p className="text-zinc-400 font-medium">Nenhum grupo ainda.</p>
+                <p className="text-[10px] text-indigo-400 font-bold mt-0.5">+ Criar Grupo do Discord</p>
+              </div>
+            ) : (
+              <div className="space-y-1">
+                {customGroups.map((g) => {
+                  const isCurrentGroup =
+                    activeView.type === 'group' && activeView.groupId === g.id;
+                  const isGroupCallLive =
+                    callState.active && callState.groupId === g.id;
+
+                  return (
+                    <div
+                      key={g.id}
+                      onClick={() => {
+                        setActiveView({ type: 'group', groupId: g.id });
+                        setMobileMenuOpen(false);
+                      }}
+                      className={`flex items-center justify-between px-2.5 py-1.5 rounded-xl border transition cursor-pointer group ${
+                        isCurrentGroup
+                          ? 'bg-white/10 border-white/30 shadow-sm'
+                          : 'hover:bg-white/5 border-transparent'
+                      }`}
+                      style={{
+                        backgroundColor: isCurrentGroup ? undefined : theme.bgCard,
+                      }}
+                    >
+                      <div className="flex items-center gap-2 overflow-hidden flex-1">
+                        <span className="text-lg select-none">{g.icon || '👥'}</span>
+                        <div className="overflow-hidden">
+                          <span className={`text-xs font-bold truncate block ${isCurrentGroup ? 'text-white' : 'text-zinc-200'}`}>
+                            {g.name}
+                          </span>
+                          <span className="text-[9px] text-zinc-400 block">
+                            {g.members.length} membros
+                          </span>
+                        </div>
+                      </div>
+
+                      <div className="flex items-center gap-1">
+                        {isGroupCallLive && (
+                          <span className="relative flex h-2.5 w-2.5 mr-1" title="Chamada em andamento">
+                            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                            <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-emerald-500"></span>
+                          </span>
+                        )}
+
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setMobileMenuOpen(false);
+                            handleStartGroupCall(g);
+                          }}
+                          className="p-1 rounded-md bg-indigo-600 hover:bg-indigo-500 text-white transition active:scale-95 shadow"
+                          title={'Ligar para o grupo ' + g.name}
+                        >
+                          <Phone className="w-3 h-3" />
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+
           {/* SEÇÃO 2: CANAIS DE TEXTO PÚBLICOS */}
           <div>
             <div className="px-2 mb-1.5 flex items-center justify-between">
@@ -796,12 +950,17 @@ export default function Home() {
           micMuted={callState.micMuted}
           camMuted={callState.camMuted}
           messages={messages}
+          lastPlayedSound={lastPlayedSound}
+          onTriggerSound={playSoundboard}
+          groupName={callState.groupName}
           onToggleMic={toggleMic}
           onToggleCamera={toggleCamera}
           onToggleScreen={toggleScreenShare}
           onEndCall={endCall}
           onSendMessage={(content) => {
-            if (activeView.type === 'dm') {
+            if (activeView.type === 'group' && activeGroup) {
+              sendGroupMessage(activeGroup.id, content, activeGroup.members);
+            } else if (activeView.type === 'dm') {
               sendDirectMessage(activeView.friendUsername, content);
             } else {
               sendMessage(content, activeChannel.id);
@@ -867,6 +1026,17 @@ export default function Home() {
             />
           )}
         </div>
+      )}
+
+      {/* MODAL PARA CRIAR GRUPO */}
+      {createGroupOpen && (
+        <CreateGroupModal
+          isOpen={createGroupOpen}
+          onClose={() => setCreateGroupOpen(false)}
+          friends={friends}
+          currentUsername={username}
+          onCreateGroup={handleCreateGroup}
+        />
       )}
 
       {/* MODAL PARA LIGAR DIRETO PARA UM AMIGO */}

@@ -28,6 +28,7 @@ export interface ChatMessage {
   sender: string;
   recipient?: string;
   isPrivate?: boolean;
+  groupId?: string;
   avatar?: string;
   nameFont?: string;
   nameColor?: string;
@@ -50,6 +51,31 @@ export interface VoiceChannel {
   desc: string;
 }
 
+export interface CustomGroup {
+  id: string;
+  name: string;
+  icon: string;
+  members: string[]; // usernames
+  createdBy: string;
+  createdAt: string;
+}
+
+export interface SoundEffect {
+  id: string;
+  name: string;
+  emoji: string;
+  category?: string;
+  customDataUrl?: string;
+}
+
+export interface PlayedSoundNotification {
+  soundId: string;
+  soundName: string;
+  emoji: string;
+  sender: string;
+  timestamp: number;
+}
+
 export interface CallState {
   active: boolean;
   isCaller: boolean;
@@ -61,6 +87,8 @@ export interface CallState {
   isScreenSharing: boolean;
   micMuted: boolean;
   camMuted: boolean;
+  groupId?: string;
+  groupName?: string;
 }
 
 export interface Friend {
@@ -75,7 +103,8 @@ export interface Friend {
 export type ActiveView =
   | { type: 'channel'; id: string }
   | { type: 'dm'; friendUsername: string }
-  | { type: 'voice'; roomId: string };
+  | { type: 'voice'; roomId: string }
+  | { type: 'group'; groupId: string };
 
 export interface User {
   id: string;

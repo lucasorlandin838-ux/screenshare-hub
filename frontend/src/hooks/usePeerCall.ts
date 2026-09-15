@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import Peer, { MediaConnection, DataConnection } from 'peerjs';
-import { ChatMessage, CallState, ChatAttachment } from '../types';
+import { ChatMessage, CallState, ChatAttachment, SoundEffect, PlayedSoundNotification, CustomGroup } from '../types';
+import { playSound } from '../utils/soundboard';
 
 export function sanitizePeerId(name: string): string {
   return 'hub_' + name.toLowerCase().trim().replace(/[^a-z0-9_]/g, '');
@@ -83,6 +84,8 @@ export function usePeerCall(
 
   // Mapa REAL de amigos online (por padrão nenhum é online até ser verificado)
   const [friendsOnline, setFriendsOnline] = useState<Record<string, boolean>>({});
+  const [lastPlayedSound, setLastPlayedSound] = useState<PlayedSoundNotification | null>(null);
+  const [incomingGroupCall, setIncomingGroupCall] = useState<{ groupId: string; groupName: string; caller: string } | null>(null);
 
   const [callState, setCallState] = useState<CallState>({
     active: false,
@@ -117,6 +120,14 @@ export function usePeerCall(
   const camTrackRef = useRef<MediaStreamTrack | null>(null);
   const isScreenSharingRef = useRef(false);
   const ringIntervalRef = useRef<any>(null);
+
+  useEffect(() => {
+    if (!lastPlayedSound) return;
+    const soundTimer = setTimeout(() => {
+      setLastPlayedSound(null);
+    }, 3500);
+    return () => clearTimeout(soundTimer);
+  }, [lastPlayedSound]);
 
   useEffect(() => {
     try {
@@ -237,7 +248,22 @@ export function usePeerCall(
         setFriendsOnline((prev) => ({ ...prev, [data.sender.toLowerCase()]: true }));
       }
 
-      if (data?.type === 'chat' || data?.type === 'dm') {
+      if (data?.type === 'soundboard-play') {
+        playSound(data.soundId, 0.85, data.customDataUrl);
+        setLastPlayedSound({
+          soundId: data.soundId,
+          soundName: data.soundName || data.soundId,
+          emoji: data.emoji || '🔊',
+          sender: data.sender || 'Amigo',
+          timestamp: Date.now(),
+        });
+      } else if (data?.type === 'group-call-invite') {
+        setIncomingGroupCall({
+          groupId: data.groupId,
+          groupName: data.groupName,
+          caller: data.sender,
+        });
+      } else if (data?.type === 'chat' || data?.type === 'dm' || data?.type === 'group-chat') {
         setMessages((prev) => [
           ...prev,
           {
@@ -249,6 +275,7 @@ export function usePeerCall(
             nameFont: data.nameFont,
             nameColor: data.nameColor,
             channelId: data.channelId,
+            groupId: data.groupId,
             content: data.content,
             file: data.file,
             time: data.time || new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }),
@@ -692,6 +719,131 @@ export function usePeerCall(
     [username, avatar, nameFont, nameColor]
   );
 
+  const playSoundboard = useCallback(
+    (sound: SoundEffect) => {
+      playSound(sound.id, 0.85, sound.customDataUrl);
+      setLastPlayedSound({
+        soundId: sound.id,
+        soundName: sound.name,
+        emoji: sound.emoji,
+        sender: username || 'Você',
+        timestamp: Date.now(),
+      });
+
+      if (dataConnRef.current && dataConnRef.current.open) {
+        dataConnRef.current.send({
+          type: 'soundboard-play',
+          soundId: sound.id,
+          soundName: sound.name,
+          emoji: sound.emoji,
+          sender: username,
+          customDataUrl: sound.customDataUrl,
+        });
+      }
+    },
+    [username]
+  );
+
+  const sendGroupMessage = useCallback(
+    (groupId: string, content: string, members: string[], file?: ChatAttachment) => {
+      if (!content.trim() && !file) return;
+      if (!username) return;
+
+      const timeStr = new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+      const msg: ChatMessage = {
+        id: String(Date.now()) + Math.random(),
+        sender: username,
+        groupId: groupId,
+        avatar: avatar,
+        nameFont: nameFont,
+        nameColor: nameColor,
+        content: content.trim(),
+        file: file,
+        time: timeStr,
+      };
+
+      setMessages((prev) => [...prev, msg]);
+
+      // Envia para cada membro do grupo via P2P
+      members.forEach((m) => {
+        const clean = m.toLowerCase().trim().replace(/[^a-z0-9_]/g, '');
+        if (clean && clean !== username.toLowerCase()) {
+          const targetId = 'hub_' + clean;
+          if (dataConnRef.current && dataConnRef.current.open && dataConnRef.current.peer === targetId) {
+            dataConnRef.current.send({
+              type: 'group-chat',
+              groupId: groupId,
+              sender: username,
+              avatar: avatar,
+              nameFont: nameFont,
+              nameColor: nameColor,
+              content: content.trim(),
+              file: file,
+              time: timeStr,
+            });
+          } else if (peerRef.current) {
+            try {
+              const conn = peerRef.current.connect(targetId, { reliable: true });
+              conn.on('open', () => {
+                conn.send({
+                  type: 'group-chat',
+                  groupId: groupId,
+                  sender: username,
+                  avatar: avatar,
+                  nameFont: nameFont,
+                  nameColor: nameColor,
+                  content: content.trim(),
+                  file: file,
+                  time: timeStr,
+                });
+                setTimeout(() => conn.close(), 1500);
+              });
+            } catch {}
+          }
+        }
+      });
+    },
+    [username, avatar, nameFont, nameColor]
+  );
+
+  const startGroupCall = useCallback(
+    async (group: CustomGroup) => {
+      joinRoom('grupo_' + group.id);
+      setCallState((prev) => ({
+        ...prev,
+        groupId: group.id,
+        groupName: group.name,
+      }));
+
+      // Dispara sinal para os membros do grupo
+      group.members.forEach((m) => {
+        const clean = m.toLowerCase().trim().replace(/[^a-z0-9_]/g, '');
+        if (clean && clean !== username?.toLowerCase()) {
+          const targetId = 'hub_' + clean;
+          try {
+            const conn = peerRef.current?.connect(targetId, { reliable: true });
+            conn?.on('open', () => {
+              conn.send({
+                type: 'group-call-invite',
+                groupId: group.id,
+                groupName: group.name,
+                sender: username,
+              });
+              setTimeout(() => conn.close(), 2000);
+            });
+          } catch {}
+        }
+      });
+
+      // Se houver amigos, liga para o primeiro membro
+      const otherMembers = group.members.filter((m) => m.toLowerCase() !== username?.toLowerCase());
+      if (otherMembers.length > 0) {
+        callUser(otherMembers[0]);
+      }
+    },
+    [username, joinRoom, callUser]
+  );
+
   return {
     actualPeerId,
     connectionStatus,
@@ -715,5 +867,10 @@ export function usePeerCall(
     toggleCamera,
     sendMessage,
     sendDirectMessage,
+    lastPlayedSound,
+    incomingGroupCall,
+    playSoundboard,
+    sendGroupMessage,
+    startGroupCall,
   };
 }

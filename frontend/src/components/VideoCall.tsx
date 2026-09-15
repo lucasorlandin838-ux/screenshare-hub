@@ -15,8 +15,10 @@ import {
   Send,
   Volume2,
   Tv,
+  Music,
 } from 'lucide-react';
-import { ChatMessage } from '../types';
+import { ChatMessage, SoundEffect, PlayedSoundNotification } from '../types';
+import SoundboardModal from './SoundboardModal';
 import { useTheme } from '../context/ThemeContext';
 
 interface Props {
@@ -35,6 +37,9 @@ interface Props {
   onToggleScreen: () => void;
   onEndCall: () => void;
   onSendMessage: (msg: string) => void;
+  lastPlayedSound?: PlayedSoundNotification | null;
+  onTriggerSound?: (sound: SoundEffect) => void;
+  groupName?: string;
 }
 
 export default function VideoCall({
@@ -53,7 +58,11 @@ export default function VideoCall({
   onToggleScreen,
   onEndCall,
   onSendMessage,
+  lastPlayedSound,
+  onTriggerSound,
+  groupName,
 }: Props) {
+  const [soundboardOpen, setSoundboardOpen] = useState(false);
   const { theme, accent } = useTheme();
   const containerRef = useRef<HTMLDivElement>(null);
   const remoteContainerRef = useRef<HTMLDivElement>(null);
@@ -519,6 +528,20 @@ export default function VideoCall({
           )}
         </button>
 
+                {/* Soundboard Button */}
+        <button
+          onClick={() => setSoundboardOpen(true)}
+          className="px-3 sm:px-4 py-3 sm:py-3.5 rounded-full flex items-center gap-1.5 font-bold text-xs sm:text-sm transition transform active:scale-95 shadow-xl border hover:brightness-110 text-white"
+          style={{
+            backgroundColor: theme.bgCard,
+            borderColor: theme.borderColor,
+          }}
+          title="Abrir Soundboard (Efeitos de Som do Discord)"
+        >
+          <Music className="w-4 h-4 sm:w-5 sm:h-5 text-emerald-400" />
+          <span className="hidden sm:inline">Soundboard</span>
+        </button>
+
         {/* End Call Button */}
         <button
           onClick={onEndCall}
@@ -528,6 +551,16 @@ export default function VideoCall({
           <PhoneOff className="w-4 h-4 sm:w-5 sm:h-5" />
         </button>
       </div>
+      {/* Soundboard Modal */}
+      {soundboardOpen && (
+        <SoundboardModal
+          isOpen={soundboardOpen}
+          onClose={() => setSoundboardOpen(false)}
+          onTriggerSound={(sound) => {
+            if (onTriggerSound) onTriggerSound(sound);
+          }}
+        />
+      )}
     </div>
   );
 }
