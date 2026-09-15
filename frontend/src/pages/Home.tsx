@@ -26,6 +26,7 @@ import DirectMessageChat from '../components/DirectMessageChat';
 import VoiceRoomPanel from '../components/VoiceRoomPanel';
 import UserSettingsModal, { FONT_OPTIONS } from '../components/UserSettingsModal';
 import { useTheme } from '../context/ThemeContext';
+import LoginPage from './LoginPage';
 import { Friend, TextChannel, VoiceChannel, ActiveView, CustomGroup } from '../types';
 import GroupChatView from '../components/GroupChatView';
 import CreateGroupModal from '../components/CreateGroupModal';
@@ -277,71 +278,16 @@ export default function Home() {
 
   if (!username) {
     return (
-      <div
-        className="min-h-screen flex items-center justify-center p-4 font-sans"
-        style={{ backgroundColor: theme.bgMain }}
-      >
-        <div
-          className="border rounded-3xl p-6 sm:p-8 max-w-md w-full shadow-2xl animate-in fade-in zoom-in-95 duration-200"
-          style={{
-            backgroundColor: theme.bgCard,
-            borderColor: theme.borderColor,
-            color: theme.textPrimary,
-          }}
-        >
-          <div
-            className="w-16 h-16 rounded-2xl flex items-center justify-center mx-auto mb-5 shadow-xl border"
-            style={{
-              backgroundColor: theme.bgSidebar,
-              borderColor: accent.hex,
-            }}
-          >
-            <Monitor className="w-8 h-8" style={{ color: accent.hex }} />
-          </div>
-
-          <h1 className="text-2xl sm:text-3xl font-black text-white text-center mb-2 tracking-tight">
-            ScreenShare Hub
-          </h1>
-          <p className="text-zinc-400 text-xs sm:text-sm text-center mb-6">
-            O Discord gratuito do navegador: Chat de texto, canais de voz, chat privado e transmissão de tela.
-          </p>
-
-          <form
-            onSubmit={(e) => {
-              e.preventDefault();
-              saveProfile(nameInput, '', 'default', '#ffffff');
-            }}
-            className="space-y-4"
-          >
-            <div>
-              <label className="block text-xs font-bold uppercase tracking-wider text-zinc-300 mb-2">
-                Escolha seu nome de usuário
-              </label>
-              <input
-                type="text"
-                placeholder="ex: lucas, joce, gabriel..."
-                value={nameInput}
-                onChange={(e) => setNameInput(e.target.value)}
-                autoFocus
-                required
-                className="w-full rounded-xl px-4 py-3.5 text-base sm:text-sm text-white placeholder-zinc-500 focus:outline-none border transition"
-                style={{
-                  backgroundColor: theme.bgInput,
-                  borderColor: theme.borderColor,
-                }}
-              />
-            </div>
-
-            <button
-              type="submit"
-              className="w-full text-white font-bold py-3.5 rounded-xl transition shadow-lg text-sm active:scale-95"
-              style={{ backgroundColor: accent.hex }}
-            >
-              Entrar no Servidor 🚀
-            </button>
-          </form>
-        </div>
-      </div>
+      <LoginPage
+        onLogin={(uname, uavatar) => {
+          setUsername(uname);
+          setAvatar(uavatar || '');
+          const savedFont = localStorage.getItem('hub_name_font') || 'default';
+          const savedColor = localStorage.getItem('hub_name_color') || '#ffffff';
+          setNameFont(savedFont);
+          setNameColor(savedColor);
+        }}
+      />
     );
   }
 
@@ -926,6 +872,7 @@ export default function Home() {
             <button
               onClick={() => {
                 localStorage.removeItem('hub_username');
+                localStorage.removeItem('hub_remember');
                 setUsername('');
               }}
               className="p-1.5 rounded-lg text-zinc-500 hover:text-red-400 hover:bg-white/10 transition"
