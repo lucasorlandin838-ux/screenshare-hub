@@ -1,8 +1,42 @@
+export interface UserProfile {
+  username: string;
+  avatar?: string;
+}
+
+export interface ChatMessage {
+  id: string;
+  sender: string;
+  content: string;
+  time: string;
+  isSystem?: boolean;
+}
+
+export interface CallState {
+  active: boolean;
+  isCaller: boolean;
+  peerUsername: string;
+  incoming: boolean;
+  isScreenSharing: boolean;
+  micMuted: boolean;
+  camMuted: boolean;
+}
+
+export interface Friend {
+  username: string;
+  lastSeen?: string;
+}
+
+export interface GroupRoom {
+  id: string;
+  name: string;
+  code: string;
+}
+
 export interface User {
   id: string;
   username: string;
   email?: string;
-  status?: 'online' | 'offline' | 'busy';
+  status?: string;
 }
 
 export interface Friendship {
@@ -25,15 +59,4 @@ export interface Message {
   senderUsername: string;
   content: string;
   createdAt: string;
-  receiverId?: string;
-  groupId?: string;
-}
-
-export interface CallState {
-  active: boolean;
-  peerId?: string;
-  peerUsername?: string;
-  incoming?: boolean;
-  signal?: any;
-  isScreenShare?: boolean;
 }
